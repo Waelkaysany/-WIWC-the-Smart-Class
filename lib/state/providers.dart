@@ -22,7 +22,22 @@ final classroomStatsProvider =
 final devicesProvider =
     StateNotifierProvider<DevicesNotifier, List<Device>>((ref) {
   final dbService = ref.watch(databaseServiceProvider);
-  return DevicesNotifier(dbService);
+  final notifier = DevicesNotifier(dbService);
+
+  // Sync device state from Firebase RTDB stream.
+  // This ensures changes made by the AI assistant, scheduler,
+  // or any other client are reflected in the Controls UI.
+  ref.listen(firebaseDevicesProvider, (previous, next) {
+    next.whenData((data) => notifier.updateFromMap(data));
+  });
+
+  // Load initial data if available
+  final initial = ref.read(firebaseDevicesProvider).asData?.value;
+  if (initial != null) {
+    Future.microtask(() => notifier.updateFromMap(initial));
+  }
+
+  return notifier;
 });
 
 final _lastNotificationTime = <String, DateTime>{};
