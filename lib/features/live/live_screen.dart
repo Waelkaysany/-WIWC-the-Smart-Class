@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,10 +8,13 @@ import '../../theme/theme_colors.dart';
 import '../../theme/tokens.dart';
 import '../../state/providers.dart';
 import '../../state/locale_provider.dart';
+import '../../state/profile_pic_provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../widgets/insight_card.dart';
 import '../../widgets/gauge.dart';
 import '../../models/environment_data.dart';
+import '../../services/firebase_service.dart';
+import '../profile/notification_screen.dart';
 
 class LiveScreen extends ConsumerWidget {
   const LiveScreen({super.key});
@@ -50,23 +54,14 @@ class LiveScreen extends ConsumerWidget {
                   ),
                   Row(
                     children: [
-                      _IconBtn(icon: Icons.notifications_none_rounded),
-                      const SizedBox(width: AppSpacing.sm),
-                      Container(
-                        width: 36,
-                        height: 36,
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: AppGradients.secondaryGradient,
+                      GestureDetector(
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const NotificationScreen()),
                         ),
-                        child: const Center(
-                          child: Text('T', style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                          )),
-                        ),
+                        child: _IconBtn(icon: Icons.notifications_none_rounded),
                       ),
+                      const SizedBox(width: AppSpacing.sm),
+                      _ProfileAvatar(),
                     ],
                   ),
                 ],
@@ -434,6 +429,55 @@ class _IconBtn extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
       ),
       child: Icon(icon, color: context.textSecondary, size: 20),
+    );
+  }
+}
+
+/// Profile avatar that syncs with profilePicProvider
+class _ProfileAvatar extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final profilePicPath = ref.watch(profilePicProvider);
+    final authState = ref.watch(authStateProvider);
+    final user = authState.value;
+    final displayName = user?.displayName ?? user?.email?.split('@').first ?? 'T';
+    final initial = displayName.isNotEmpty ? displayName[0].toUpperCase() : 'T';
+
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: AppGradients.secondaryGradient,
+      ),
+      child: profilePicPath != null && File(profilePicPath).existsSync()
+          ? ClipOval(
+              child: Image.file(
+                File(profilePicPath),
+                fit: BoxFit.cover,
+                width: 36,
+                height: 36,
+              ),
+            )
+          : user?.photoURL != null
+              ? ClipOval(
+                  child: Image.network(
+                    user!.photoURL!,
+                    fit: BoxFit.cover,
+                    width: 36,
+                    height: 36,
+                    errorBuilder: (_, __, ___) => Center(
+                      child: Text(initial, style: const TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14,
+                      )),
+                    ),
+                  ),
+                )
+              : Center(
+                  child: Text(initial, style: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14,
+                  )),
+                ),
     );
   }
 }

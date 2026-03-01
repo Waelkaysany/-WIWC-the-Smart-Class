@@ -234,12 +234,23 @@ class DatabaseService {
 
     // 2. Trigger email via EmailService
     try {
-      await EmailService.sendApprovalEmail(
+      final sent = await EmailService.sendApprovalEmail(
         teacherEmail: email,
         uid: uid,
       );
-      print('DEBUG: Approval email sent successfully for $email');
+      // Log result to RTDB so we can see it even in release mode
+      await _approvalsRef.child(uid).update({
+        'emailSent': sent,
+        'emailAttemptedAt': DateTime.now().toIso8601String(),
+      });
+      print('DEBUG: Approval email sent=$sent for $email');
     } catch (e) {
+      // Log the error to RTDB
+      await _approvalsRef.child(uid).update({
+        'emailSent': false,
+        'emailError': e.toString(),
+        'emailAttemptedAt': DateTime.now().toIso8601String(),
+      });
       print('DEBUG ERROR: Failed to send approval email: $e');
     }
   }
@@ -311,6 +322,67 @@ class DatabaseService {
       'speakers': {'isOn': false},
       'window_left': {'isOn': false},
       'window_right': {'isOn': false},
+    });
+  }
+
+  // ── Seed classrooms (run once) ──
+  Future<void> seedClassrooms() async {
+    final ref = _db.ref('classrooms');
+    final snapshot = await ref.get();
+    if (snapshot.exists) {
+      // Check if we need to update names
+      final data = Map<String, dynamic>.from(snapshot.value as Map);
+      if (data.containsKey('classroom_a') && !data.containsKey('emphi_1')) {
+        // Old seed data — delete and reseed with real names
+        await ref.remove();
+      } else {
+        return; // Already seeded with correct names
+      }
+    }
+
+    await ref.set({
+      'emphi_1': {
+        'name': 'Emphi 1',
+        'grade': 'ROOM 101',
+        'subject': 'General',
+        'imageIndex': 0,
+        'status': 'available',
+      },
+      'emphi_2': {
+        'name': 'Emphi 2',
+        'grade': 'ROOM 102',
+        'subject': 'General',
+        'imageIndex': 1,
+        'status': 'available',
+      },
+      'emphi_3': {
+        'name': 'Emphi 3',
+        'grade': 'ROOM 103',
+        'subject': 'General',
+        'imageIndex': 2,
+        'status': 'available',
+      },
+      'emphi_4': {
+        'name': 'Emphi 4',
+        'grade': 'ROOM 104',
+        'subject': 'General',
+        'imageIndex': 3,
+        'status': 'available',
+      },
+      'a9': {
+        'name': 'A9',
+        'grade': 'ROOM A9',
+        'subject': 'General',
+        'imageIndex': 4,
+        'status': 'available',
+      },
+      'a8': {
+        'name': 'A8',
+        'grade': 'ROOM A8',
+        'subject': 'General',
+        'imageIndex': 5,
+        'status': 'available',
+      },
     });
   }
 }

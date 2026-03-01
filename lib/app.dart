@@ -12,7 +12,11 @@ import 'features/controls/controls_screen.dart';
 import 'features/assistant/assistant_screen.dart';
 import 'features/profile/profile_screen.dart';
 import 'features/auth/login_screen.dart';
+import 'features/classes/class_selection_screen.dart';
+import 'features/classes/class_dashboard_shell.dart';
+import 'state/class_providers.dart';
 import 'services/firebase_service.dart';
+import 'package:firebase_database/firebase_database.dart';
 
 class WIWCApp extends ConsumerWidget {
   const WIWCApp({super.key});
@@ -89,7 +93,7 @@ class AuthWrapper extends ConsumerWidget {
               return const PendingApprovalScreen();
             }
 
-            return const AppShell();
+            return const _ClassLoadingWrapper();
           },
           loading: () => const Scaffold(
             body: Center(
@@ -301,6 +305,77 @@ class _NavItem extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Seeds classrooms and restores sessions before showing class selection
+class _ClassLoadingWrapper extends ConsumerStatefulWidget {
+  const _ClassLoadingWrapper();
+
+  @override
+  ConsumerState<_ClassLoadingWrapper> createState() => _ClassLoadingWrapperState();
+}
+
+class _ClassLoadingWrapperState extends ConsumerState<_ClassLoadingWrapper> {
+  bool _ready = false;
+  String? _restoredClassId;
+  String? _restoredClassName;
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  Future<void> _init() async {
+    try {
+      // Seed classrooms (no-op if already exist)
+      await DatabaseService().seedClassrooms();
+
+      // Check for an existing active session
+      final service = ref.read(classSessionServiceProvider);
+      final restored = await service.restoreSession();
+      if (restored != null) {
+        // Fetch class name
+        final snapshot = await FirebaseDatabase.instance.ref('classrooms/$restored/name').get();
+        _restoredClassId = restored;
+        _restoredClassName = snapshot.value as String? ?? 'Class';
+      }
+    } catch (e) {
+      debugPrint('⚠️ Class init error: $e');
+    }
+    if (mounted) setState(() => _ready = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_ready) {
+      return Scaffold(
+        backgroundColor: Theme.of(context).brightness == Brightness.dark
+            ? const Color(0xFF0F1115)
+            : const Color(0xFFF5F7FA),
+        body: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Preparing classrooms...'),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // If there's a restored session, go directly to the dashboard
+    if (_restoredClassId != null) {
+      return ClassDashboardShell(
+        classId: _restoredClassId!,
+        className: _restoredClassName!,
+      );
+    }
+
+    return const ClassSelectionScreen();
   }
 }
 

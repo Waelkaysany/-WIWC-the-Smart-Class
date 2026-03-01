@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/tokens.dart';
 import '../../services/firebase_service.dart';
+import '../../state/class_providers.dart';
 import '../../state/theme_provider.dart';
 import '../../state/locale_provider.dart';
 import '../../state/profile_pic_provider.dart';
@@ -41,26 +42,36 @@ class ProfileScreen extends ConsumerWidget {
     final textMuted = isDark ? AppColors.textMuted : const Color(0xFFA0AEC0);
     final surfaceLight = isDark ? AppColors.surfaceLight : const Color(0xFFF0F4F8);
 
-    return CustomScrollView(
+    final bg = isDark ? const Color(0xFF0F1115) : const Color(0xFFF5F7FA);
+
+    return Scaffold(
+      backgroundColor: bg,
+      appBar: AppBar(
+        backgroundColor: bg,
+        elevation: 0,
+        leading: Navigator.of(context).canPop()
+            ? IconButton(
+                icon: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: surfaceColor,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: borderColor, width: 0.5),
+                  ),
+                  child: Icon(Icons.arrow_back_ios_new, size: 16, color: textPrimary),
+                ),
+                onPressed: () => Navigator.of(context).pop(),
+              )
+            : null,
+        automaticallyImplyLeading: false,
+        title: Text(
+          t('profile'),
+          style: TextStyle(color: textPrimary, fontWeight: FontWeight.bold, fontSize: 20),
+        ),
+      ),
+      body: CustomScrollView(
       physics: const BouncingScrollPhysics(),
       slivers: [
-        // ── Header ──
-        SliverToBoxAdapter(
-          child: SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.xl, AppSpacing.lg, AppSpacing.xl, AppSpacing.sm),
-              child: Text(
-                t('profile'),
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-            ),
-          ),
-        ),
-
         // ── Profile Card ──
         SliverToBoxAdapter(
           child: Padding(
@@ -347,6 +358,7 @@ class ProfileScreen extends ConsumerWidget {
           child: SizedBox(height: AppSpacing.xxxl),
         ),
       ],
+    ),
     );
   }
 
@@ -504,6 +516,12 @@ class ProfileScreen extends ConsumerWidget {
           TextButton(
             onPressed: () async {
               Navigator.of(ctx).pop();
+              // Leave any active class session first
+              try {
+                final service = ref.read(classSessionServiceProvider);
+                await service.leaveClass();
+                ref.read(activeClassIdProvider.notifier).state = null;
+              } catch (_) {}
               await ref.read(authServiceProvider).signOut();
               if (context.mounted) {
                 Navigator.of(context).pushAndRemoveUntil(
