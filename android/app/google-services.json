@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1090749757095",
+    "project_id": "wiwc-smartclass",
+    "storage_bucket": "wiwc-smartclass.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1090749757095:android:f4255c4399c00e0fdacd82",
+        "android_client_info": {
+          "package_name": "com.wiwc.app.wiwc"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBg251F3-QeIfsvxd2GM0Wg_xarexEdYIA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
