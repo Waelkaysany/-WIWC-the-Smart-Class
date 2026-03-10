@@ -1,33 +1,28 @@
 /*
  * ═══════════════════════════════════════════════════════════════
- *  WIWC Smart Classroom — ESP32 + RFID (MFRC522) Attendance
+ *  WIWC Smart Classroom — ESP32 + RFID (MFRC522) Attendance + LEDs
  *  Writes student attendance to Firebase Realtime Database
+ *  Reads LED state from Firebase to control lights
  * ═══════════════════════════════════════════════════════════════
  *
- *  Wiring (Arduino Nano ESP32 → MFRC522):
+ *  Wiring (ESP32 → MFRC522):
  *    3.3V  → VCC
  *    GND   → GND
- *    D13   → SCK
- *    D11   → MOSI
- *    D12   → MISO
- *    D10   → SDA (SS)
- *    D9    → RST
- *    D2    → LED (built-in on most boards)
+ *    D18   → SCK
+ *    D23   → MOSI
+ *    D19   → MISO
+ *    D5    → SDA (SS)
+ *    D22   → RST
+ *
+ *  LED Wiring (ESP32):
+ *    D12   → LED1
+ *    D13   → LED2
+ *    D14   → LED3
  *
  *  Libraries needed (install via Arduino Library Manager):
  *    1. MFRC522 by GithubCommunity
  *    2. Firebase Arduino Client Library for ESP8266 and ESP32 (by mobizt)
  *    3. WiFi (built-in for ESP32)
- *
- *  How it works:
- *    - ESP32 reads RFID card UIDs
- *    - Each unique card UID = one student
- *    - First tap = CHECK IN  (studentsPresent++)
- *    - Second tap = CHECK OUT (studentsPresent--)
- *    - Writes to Firebase RTDB:
- *        classroom/sensors/studentsPresent = <count>
- *        classroom/attendance/<cardUID> = { checkedIn: true/false, lastScan:
- * ... }
  */
 
 #include <Firebase_ESP_Client.h>
@@ -37,34 +32,35 @@
 #include <addons/RTDBHelper.h>
 #include <addons/TokenHelper.h>
 
-
 // ═══════════════════════════════════════════
-//  🔧 CONFIGURATION — EDIT THESE 2 VALUES
+//  🔧 CONFIGURATION — EDIT THESE
 // ═══════════════════════════════════════════
 
 // WiFi credentials — CHANGE THESE TO YOUR NETWORK
-#define WIFI_SSID "UH2CGUEST"
-#define WIFI_PASSWORD "uh2c@2021"
+#define WIFI_SSID "YOUR_WIFI_NAME"
+#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
 
-// Firebase — already configured for your project (no auth needed)
+// Firebase — already configured for your project
 #define FIREBASE_API_KEY "AIzaSyCiXjjBLZnMCyKhzYQUv8Tz2fYSHbpwepo"
 #define FIREBASE_DATABASE_URL                                                  \
   "https://wiwc-smartclass-default-rtdb.firebaseio.com/"
 
-// RFID Pins (Specific to Arduino Nano ESP32)
-#define SS_PIN 10 // D10
-#define RST_PIN 9 // D9
+// RFID Pins
+#define SS_PIN 5
+#define RST_PIN 22
 
-// LED pin (built-in LED on Nano ESP32 is D13, but let's use D2 for external led
-// or pin D2)
-#define LED_PIN 2 // D2
+// LED Pins (from your code)
+#define LED1 12
+#define LED2 13
+#define LED3 14
 
 // ═══════════════════════════════════════════
 //  Internal state
 // ═══════════════════════════════════════════
 
-MFRC522 rfid(SS_PIN, RST_PIN);
+MFRC522 mfrc522(SS_PIN, RST_PIN);
 FirebaseData fbdo;
+FirebaseData streamDo; // Dedicated to streaming LED changes
 FirebaseAuth auth;
 FirebaseConfig config;
 
@@ -75,6 +71,9 @@ int studentsPresent = 0;
 String checkedInCards[MAX_STUDENTS];
 int checkedInCount = 0;
 
+// LED State
+bool ledState = false;
+
 // ═══════════════════════════════════════════
 //  Setup
 // ═══════════════════════════════════════════
@@ -84,17 +83,20 @@ void setup() {
   delay(1000);
 
   Serial.println("\n═══════════════════════════════════════");
-  Serial.println("  WIWC Smart Classroom — ESP32 RFID");
+  Serial.println("  WIWC Smart Classroom — ESP32 + RFID");
   Serial.println("═══════════════════════════════════════\n");
 
-  // LED
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
+  // LEDs
+  pinMode(LED1, OUTPUT);
+  pinMode(LED2, OUTPUT);
+  pinMode(LED3, OUTPUT);
+  digitalWrite(LED1, LOW);
+  digitalWrite(LED2, LOW);
+  digitalWrite(LED3, LOW);
 
   // Initialize SPI and RFID
   SPI.begin();
-  rfid.PCD_Init();
-  rfid.PCD_DumpVersionToSerial();
+  mfrc522.PCD_Init();
   Serial.println("✅ RFID reader initialized");
 
   // Connect to WiFi
@@ -116,11 +118,11 @@ void setup() {
     return;
   }
 
-  // Configure Firebase (anonymous — no auth needed since rules are open)
+  // Configure Firebase
   config.api_key = FIREBASE_API_KEY;
   config.database_url = FIREBASE_DATABASE_URL;
 
-  // Sign in anonymously (no email/password needed)
+  // Sign in anonymously
   Firebase.signUp(&config, &auth, "", "");
   config.token_status_callback = tokenStatusCallback;
 
@@ -138,22 +140,37 @@ void setup() {
 
   if (Firebase.ready()) {
     Serial.println("\n✅ Firebase connected!");
+
+    // Start listening for LED changes from Firebase App
+    if (Firebase.RTDB.beginStream(&streamDo,
+                                  "/classroom/devices/esp_leds/isOn")) {
+      Serial.println("✅ Started streaming ESP LEDs state from app");
+    } else {
+      Serial.println("❌ Failed to begin stream for ESP LEDs");
+    }
+
   } else {
     Serial.println("\n❌ Firebase connection failed!");
     return;
   }
 
-  // Reset student count to 0 on startup
-  studentsPresent = 0;
-  writeStudentCount();
+  // Sync initial students count
+  if (Firebase.RTDB.getInt(&fbdo, "classroom/sensors/studentsPresent")) {
+    studentsPresent = fbdo.intData();
+    Serial.print("Initial students present from DB: ");
+    Serial.println(studentsPresent);
+  } else {
+    studentsPresent = 0;
+  }
 
   // Blink LED to show ready
-  for (int i = 0; i < 3; i++) {
-    digitalWrite(LED_PIN, HIGH);
-    delay(200);
-    digitalWrite(LED_PIN, LOW);
-    delay(200);
-  }
+  digitalWrite(LED1, HIGH);
+  digitalWrite(LED2, HIGH);
+  digitalWrite(LED3, HIGH);
+  delay(500);
+  digitalWrite(LED1, LOW);
+  digitalWrite(LED2, LOW);
+  digitalWrite(LED3, LOW);
 
   Serial.println("\n🎯 Ready! Tap an RFID card to check in/out...\n");
 }
@@ -163,7 +180,7 @@ void setup() {
 // ═══════════════════════════════════════════
 
 void loop() {
-  // Reconnect WiFi if needed
+  // 1. Reconnect WiFi if needed
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("⚠️ WiFi disconnected, reconnecting...");
     WiFi.reconnect();
@@ -171,16 +188,40 @@ void loop() {
     return;
   }
 
-  // Check for new RFID card
-  if (!rfid.PICC_IsNewCardPresent()) {
+  // 2. Listen for Firebase Stream events (App -> ESP32)
+  if (Firebase.ready()) {
+    if (Firebase.RTDB.readStream(&streamDo)) {
+      if (streamDo.streamTimeout()) {
+        Serial.println("Stream timeout, resuming...");
+      }
+
+      if (streamDo.streamAvailable()) {
+        // App toggled the LEDs switch!
+        if (streamDo.dataType() == "boolean") {
+          ledState = streamDo.boolData();
+          Serial.print("📱 App updated LED State: ");
+          Serial.println(ledState ? "ON" : "OFF");
+
+          digitalWrite(LED1, ledState ? HIGH : LOW);
+          digitalWrite(LED2, ledState ? HIGH : LOW);
+          digitalWrite(LED3, ledState ? HIGH : LOW);
+        }
+      }
+    }
+  }
+
+  // 3. Check for new RFID card (ESP32 -> App)
+  if (!mfrc522.PICC_IsNewCardPresent()) {
     return;
   }
-  if (!rfid.PICC_ReadCardSerial()) {
+  if (!mfrc522.PICC_ReadCardSerial()) {
     return;
   }
 
-  // Turn on LED
-  digitalWrite(LED_PIN, HIGH);
+  // Blink indicator for card read
+  digitalWrite(LED1, !ledState); // Toggle briefly based on current state
+  delay(100);
+  digitalWrite(LED1, ledState);
 
   // Read card UID
   String cardUID = getCardUID();
@@ -209,14 +250,10 @@ void loop() {
   writeAttendanceRecord(cardUID, !wasCheckedIn);
 
   // Halt card to prevent repeated reads
-  rfid.PICC_HaltA();
-  rfid.PCD_StopCrypto1();
+  mfrc522.PICC_HaltA();
+  mfrc522.PCD_StopCrypto1();
 
-  // Turn off LED
-  delay(800);
-  digitalWrite(LED_PIN, LOW);
-
-  delay(500); // Debounce — prevents double-read
+  delay(1000); // Debounce — prevents double-read
 }
 
 // ═══════════════════════════════════════════
@@ -225,10 +262,10 @@ void loop() {
 
 String getCardUID() {
   String uid = "";
-  for (byte i = 0; i < rfid.uid.size; i++) {
-    if (rfid.uid.uidByte[i] < 0x10)
+  for (byte i = 0; i < mfrc522.uid.size; i++) {
+    if (mfrc522.uid.uidByte[i] < 0x10)
       uid += "0";
-    uid += String(rfid.uid.uidByte[i], HEX);
+    uid += String(mfrc522.uid.uidByte[i], HEX);
   }
   uid.toUpperCase();
   return uid;

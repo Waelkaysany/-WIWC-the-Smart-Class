@@ -25,7 +25,7 @@ class AuthService {
       email: email,
       password: password,
     );
-    
+
     if (credential.user != null) {
       final db = DatabaseService();
       final profile = await db.getUserProfile(credential.user!.uid);
@@ -36,10 +36,10 @@ class AuthService {
           uid: credential.user!.uid,
           email: email,
           name: email.split('@').first,
-          role: 'teacher', 
+          role: 'teacher',
           isApproved: true,
         );
-        
+
         // Ensure some sensor data exists so the UI isn't empty
         await db.writeMockSensorData();
         await db.writeInitialDeviceStates();
@@ -47,17 +47,23 @@ class AuthService {
         await db.updateLastLogin(credential.user!.uid);
       }
     }
-    
+
     return credential;
   }
 
-  Future<UserCredential> signUp(String email, String password, {required String role}) async {
+  Future<UserCredential> signUp(
+    String email,
+    String password, {
+    required String role,
+  }) async {
     final db = DatabaseService();
-    
+
     // Check spam protection
     final attempts = await db.getSignupAttempts(email);
     if (attempts >= 3) {
-      throw Exception('Signup limit reached for this email. Please contact support.');
+      throw Exception(
+        'Signup limit reached for this email. Please contact support.',
+      );
     }
 
     final credential = await _auth.createUserWithEmailAndPassword(
@@ -195,13 +201,10 @@ class DatabaseService {
     return _approvalsRef.onValue.map((event) {
       final data = event.snapshot.value as Map<dynamic, dynamic>?;
       if (data == null) return [];
-      
+
       return data.entries.map((e) {
         final val = Map<String, dynamic>.from(e.value as Map);
-        return {
-          'uid': e.key as String,
-          ...val,
-        };
+        return {'uid': e.key as String, ...val};
       }).toList();
     });
   }
@@ -214,7 +217,7 @@ class DatabaseService {
   }
 
   Future<void> rejectUser(String uid) async {
-    // We just remove the approval request. 
+    // We just remove the approval request.
     // The user will still be stuck on the Pending screen until they logout or we delete their profile.
     // Usually "Delete" means remove the request AND potentially the user profile if we want to be thorough.
     await _approvalsRef.child(uid).remove();
@@ -224,7 +227,7 @@ class DatabaseService {
   Future<int> cleanupStaleApprovals() async {
     final snapshot = await _approvalsRef.get();
     if (!snapshot.exists) return 0;
-    
+
     int count = 0;
     final data = snapshot.value as Map<dynamic, dynamic>;
     for (var entry in data.entries) {
@@ -240,7 +243,7 @@ class DatabaseService {
 
   Future<void> createApprovalRequest(String uid, String email) async {
     final now = DateTime.now().toIso8601String();
-    
+
     // 1. Record in pending_approvals for admin dashboard use
     await _approvalsRef.child(uid).set({
       'email': email,
@@ -298,7 +301,10 @@ class DatabaseService {
   // ── Device States (App reads/writes, ESP32 reads) ──
   DatabaseReference get _devicesRef => _db.ref('classroom/devices');
 
-  Future<void> updateDeviceState(String deviceId, Map<String, dynamic> state) async {
+  Future<void> updateDeviceState(
+    String deviceId,
+    Map<String, dynamic> state,
+  ) async {
     await _devicesRef.child(deviceId).update(state);
   }
 
@@ -338,6 +344,7 @@ class DatabaseService {
       'speakers': {'isOn': false},
       'window_left': {'isOn': false},
       'window_right': {'isOn': false},
+      'esp_leds': {'isOn': false},
     });
   }
 
@@ -441,7 +448,7 @@ class DatabaseService {
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     final ref = _supportRef.push();
-    
+
     await ref.set({
       'title': title,
       'description': description,
@@ -449,7 +456,11 @@ class DatabaseService {
       'source': source,
       'status': 'open', // open, in_progress, resolved
       'teacherId': teacherId ?? user?.uid ?? 'unknown',
-      'teacherName': teacherName ?? user?.displayName ?? user?.email?.split('@').first ?? 'Unknown',
+      'teacherName':
+          teacherName ??
+          user?.displayName ??
+          user?.email?.split('@').first ??
+          'Unknown',
       'teacherEmail': teacherEmail ?? user?.email ?? '',
       'createdAt': DateTime.now().toIso8601String(),
       'updatedAt': DateTime.now().toIso8601String(),
@@ -466,12 +477,11 @@ class DatabaseService {
 
       return data.entries.map((e) {
         final val = Map<String, dynamic>.from(e.value as Map);
-        return {
-          'id': e.key as String,
-          ...val,
-        };
-      }).toList()
-        ..sort((a, b) => (b['createdAt'] as String).compareTo(a['createdAt'] as String));
+        return {'id': e.key as String, ...val};
+      }).toList()..sort(
+        (a, b) =>
+            (b['createdAt'] as String).compareTo(a['createdAt'] as String),
+      );
     });
   }
 }
@@ -488,7 +498,9 @@ final authServiceProvider = Provider<AuthService>((ref) {
 
 /// Internal provider for ClassSessionService used by AuthService.
 /// The main classSessionServiceProvider in class_providers.dart can delegate to this.
-final classSessionServiceProviderInternal = Provider<ClassSessionService>((ref) {
+final classSessionServiceProviderInternal = Provider<ClassSessionService>((
+  ref,
+) {
   final service = ClassSessionService();
   ref.onDispose(() => service.dispose());
   return service;
@@ -501,7 +513,7 @@ final authStateProvider = StreamProvider<User?>((ref) {
 final userProfileProvider = StreamProvider<Map<String, dynamic>?>((ref) {
   final user = ref.watch(authStateProvider).value;
   if (user == null) return Stream.value(null);
-  
+
   final db = ref.watch(databaseServiceProvider);
   return db._usersRef.child(user.uid).onValue.map((event) {
     final data = event.snapshot.value as Map?;
@@ -509,7 +521,9 @@ final userProfileProvider = StreamProvider<Map<String, dynamic>?>((ref) {
   });
 });
 
-final databaseServiceProvider = Provider<DatabaseService>((ref) => DatabaseService());
+final databaseServiceProvider = Provider<DatabaseService>(
+  (ref) => DatabaseService(),
+);
 
 final firebaseSensorProvider = StreamProvider<EnvironmentData>((ref) {
   return ref.watch(databaseServiceProvider).sensorStream;
@@ -519,6 +533,8 @@ final firebaseDevicesProvider = StreamProvider<Map<String, dynamic>>((ref) {
   return ref.watch(databaseServiceProvider).allDevicesStream;
 });
 
-final pendingApprovalsProvider = StreamProvider<List<Map<String, dynamic>>>((ref) {
+final pendingApprovalsProvider = StreamProvider<List<Map<String, dynamic>>>((
+  ref,
+) {
   return ref.watch(databaseServiceProvider).pendingApprovalsStream;
 });
