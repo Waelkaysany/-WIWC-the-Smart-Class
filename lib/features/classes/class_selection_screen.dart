@@ -10,6 +10,7 @@ import '../../state/locale_provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/classroom.dart';
 import '../../services/firebase_service.dart';
+import '../../services/class_session_service.dart';
 import '../profile/profile_screen.dart';
 import 'class_dashboard_shell.dart';
 
@@ -58,6 +59,10 @@ class _ClassSelectionScreenState extends ConsumerState<ClassSelectionScreen>
     );
     _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut);
     _fadeCtrl.forward();
+
+    // Force reset any stuck classrooms to available
+    ClassSessionService.cleanupStaleClassrooms();
+    DatabaseService().forceResetAllClassrooms();
   }
 
   @override
@@ -410,13 +415,7 @@ class _ClassSelectionScreenState extends ConsumerState<ClassSelectionScreen>
 
     if (success) {
       ref.read(activeClassIdProvider.notifier).state = room.id;
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (_) => ClassDashboardShell(classId: room.id, className: room.name),
-          ),
-        );
-      }
+      ref.read(activeClassNameProvider.notifier).state = room.name;
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

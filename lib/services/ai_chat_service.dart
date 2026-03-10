@@ -5,6 +5,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart';
+import 'firebase_service.dart';
 
 /// Represents one message in the AI chat.
 class AiChatMessage {
@@ -149,6 +150,36 @@ Common user questions:
 - "How do I enable notifications?" → Profile tab → Notifications → toggle each alert type
 
 ═══════════════════════════════════
+SUPPORT REQUESTS — YOU CAN REPORT PROBLEMS TO THE ADMIN!
+═══════════════════════════════════
+IMPORTANT: You have the ability to report problems to the SuperAdmin using the "reportProblem" tool.
+When a teacher asks you to report something, or mentions a problem that needs admin attention, you MUST call the reportProblem tool.
+
+How to use it:
+- Call reportProblem with: title (short summary), description (detailed info), priority ("low", "medium", "high", or "critical")
+- The tool will automatically submit a support ticket to the SuperAdmin dashboard.
+- After calling the tool, confirm to the teacher that the problem has been reported.
+
+When to call reportProblem:
+- Teacher says "report to admin", "send to admin", "tell the admin", "I have a problem", "report this problem"
+- A device seems broken or unresponsive
+- Teacher mentions an issue: broken projector, AC not working, door stuck, lights flickering, etc.
+- Teacher explicitly asks you to create a ticket or support request
+
+Priority guidelines:
+- "low": Minor issue, not urgent (e.g. a small cosmetic issue)
+- "medium": Something is not working perfectly (e.g. light flickering)
+- "high": A device is completely broken or not responding (e.g. projector won't turn on)
+- "critical": Safety issue or multiple systems down
+
+Examples:
+- "Report to admin the projector is broken" → Call reportProblem(title: "Projector not working", description: "Teacher reports the projector is not turning on", priority: "high")
+- "Tell admin AC is making noise" → Call reportProblem(title: "AC making unusual noise", description: "Teacher reports AC unit making noise during operation", priority: "medium")
+- "I have a problem" → Ask what the problem is, then call reportProblem
+
+DO NOT say you cannot report problems. You CAN. Just call the reportProblem tool.
+
+═══════════════════════════════════
 GENERAL BEHAVIOR
 ═══════════════════════════════════
 - Be friendly, helpful, and concise.
@@ -273,6 +304,23 @@ GENERAL BEHAVIOR
             ),
           },
         ),
+
+        // 10. reportProblem
+        FunctionDeclaration(
+          'reportProblem',
+          'Report a problem or issue to the SuperAdmin. Use this when a teacher reports a broken device, malfunctioning system, or any classroom issue that needs admin attention.',
+          parameters: {
+            'title': Schema.string(
+              description: 'A short, clear title for the problem (e.g. "Projector not working")',
+            ),
+            'description': Schema.string(
+              description: 'Detailed description of the problem',
+            ),
+            'priority': Schema.string(
+              description: 'Priority level: "low", "medium", "high", or "critical"',
+            ),
+          },
+        ),
       ]),
     ];
   }
@@ -363,6 +411,12 @@ GENERAL BEHAVIOR
         return _toolGetRecentLogs();
       case 'getDeviceStatus':
         return _toolGetDeviceStatus(args['deviceId'] as String);
+      case 'reportProblem':
+        return _toolReportProblem(
+          (args['title'] ?? 'Issue reported by teacher').toString(),
+          (args['description'] ?? 'No description provided').toString(),
+          (args['priority'] ?? 'medium').toString(),
+        );
       default:
         return {'error': 'Unknown tool: $name'};
     }
@@ -683,4 +737,43 @@ GENERAL BEHAVIOR
     'window_left': 'Left Window',
     'window_right': 'Right Window',
   };
+
+  Future<Map<String, dynamic>> _toolReportProblem(
+    String title,
+    String description,
+    String priority,
+  ) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      final teacherName = user?.displayName ?? user?.email?.split('@').first ?? 'Teacher';
+      final teacherEmail = user?.email ?? '';
+      final teacherId = user?.uid ?? 'unknown';
+
+      debugPrint('📋 Submitting support request: title="$title", priority=$priority, teacher=$teacherName');
+
+      final db = DatabaseService();
+      final requestId = await db.submitSupportRequest(
+        title: title,
+        description: description,
+        priority: priority,
+        source: 'ai',
+        teacherId: teacherId,
+        teacherName: teacherName,
+        teacherEmail: teacherEmail,
+      );
+
+      debugPrint('✅ Support request submitted: $requestId');
+
+      return {
+        'requestId': requestId,
+        'title': title,
+        'priority': priority,
+        'status': 'submitted',
+        'message': 'Support request submitted successfully. The SuperAdmin will review it.',
+      };
+    } catch (e) {
+      debugPrint('❌ Report problem failed: $e');
+      return {'error': 'Failed to submit support request: $e'};
+    }
+  }
 }

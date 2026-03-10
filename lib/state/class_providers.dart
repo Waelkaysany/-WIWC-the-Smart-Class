@@ -2,12 +2,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../models/classroom.dart';
 import '../services/class_session_service.dart';
+import '../services/firebase_service.dart';
 
-/// Singleton class session service
+/// Share the same ClassSessionService instance used by AuthService
 final classSessionServiceProvider = Provider<ClassSessionService>((ref) {
-  final service = ClassSessionService();
-  ref.onDispose(() => service.dispose());
-  return service;
+  return ref.read(classSessionServiceProviderInternal);
 });
 
 /// Stream of all classrooms from RTDB
@@ -24,6 +23,9 @@ final classroomsStreamProvider = StreamProvider<List<ClassRoom>>((ref) {
 
 /// Currently active class ID (null = on class selection screen)
 final activeClassIdProvider = StateProvider<String?>((ref) => null);
+
+/// Name of the currently active class
+final activeClassNameProvider = StateProvider<String>((ref) => 'Class');
 
 /// Filter for class selection screen
 final classFilterProvider = StateProvider<String>((ref) => 'All Classes');

@@ -189,12 +189,6 @@ class _LeaveClassButton extends ConsumerWidget {
               await ref.read(classSessionServiceProvider).leaveClass();
               ref.read(activeClassIdProvider.notifier).state = null;
               ref.read(selectedTabProvider.notifier).state = 0;
-              if (context.mounted) {
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (_) => const ClassSelectionScreen()),
-                  (route) => false,
-                );
-              }
             },
             child: const Text('Leave', style: TextStyle(color: AppColors.error, fontWeight: FontWeight.bold)),
           ),

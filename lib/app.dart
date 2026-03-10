@@ -15,6 +15,7 @@ import 'features/auth/login_screen.dart';
 import 'features/classes/class_selection_screen.dart';
 import 'features/classes/class_dashboard_shell.dart';
 import 'state/class_providers.dart';
+import 'state/providers.dart';
 import 'services/firebase_service.dart';
 import 'package:firebase_database/firebase_database.dart';
 
@@ -54,7 +55,14 @@ class AuthWrapper extends ConsumerWidget {
 
     return authState.when(
       data: (user) {
-        if (user == null) return const LoginScreen();
+        if (user == null) {
+          // Reset state on logout so next login starts clean
+          Future.microtask(() {
+            ref.read(selectedTabProvider.notifier).state = 0;
+            ref.read(activeClassIdProvider.notifier).state = null;
+          });
+          return const LoginScreen();
+        }
         
         // Deep check for approval
         return ref.watch(userProfileProvider).when(
@@ -93,7 +101,8 @@ class AuthWrapper extends ConsumerWidget {
               return const PendingApprovalScreen();
             }
 
-            return const _ClassLoadingWrapper();
+            // Key on user UID so widget is recreated on re-login
+            return _ClassLoadingWrapper(key: ValueKey(user.uid));
           },
           loading: () => const Scaffold(
             body: Center(
@@ -310,7 +319,7 @@ class _NavItem extends StatelessWidget {
 
 /// Seeds classrooms and restores sessions before showing class selection
 class _ClassLoadingWrapper extends ConsumerStatefulWidget {
-  const _ClassLoadingWrapper();
+  const _ClassLoadingWrapper({super.key});
 
   @override
   ConsumerState<_ClassLoadingWrapper> createState() => _ClassLoadingWrapperState();
@@ -318,8 +327,6 @@ class _ClassLoadingWrapper extends ConsumerStatefulWidget {
 
 class _ClassLoadingWrapperState extends ConsumerState<_ClassLoadingWrapper> {
   bool _ready = false;
-  String? _restoredClassId;
-  String? _restoredClassName;
 
   @override
   void initState() {
@@ -335,11 +342,13 @@ class _ClassLoadingWrapperState extends ConsumerState<_ClassLoadingWrapper> {
       // Check for an existing active session
       final service = ref.read(classSessionServiceProvider);
       final restored = await service.restoreSession();
-      if (restored != null) {
+      if (restored != null && mounted) {
         // Fetch class name
         final snapshot = await FirebaseDatabase.instance.ref('classrooms/$restored/name').get();
-        _restoredClassId = restored;
-        _restoredClassName = snapshot.value as String? ?? 'Class';
+        final name = snapshot.value as String? ?? 'Class';
+
+        ref.read(activeClassIdProvider.notifier).state = restored;
+        ref.read(activeClassNameProvider.notifier).state = name;
       }
     } catch (e) {
       debugPrint('⚠️ Class init error: $e');
@@ -367,11 +376,15 @@ class _ClassLoadingWrapperState extends ConsumerState<_ClassLoadingWrapper> {
       );
     }
 
-    // If there's a restored session, go directly to the dashboard
-    if (_restoredClassId != null) {
+    // Watch global provider state
+    final currentClassId = ref.watch(activeClassIdProvider);
+
+    // If there's an active class session, go directly to the dashboard
+    if (currentClassId != null) {
+      final currentClassName = ref.watch(activeClassNameProvider);
       return ClassDashboardShell(
-        classId: _restoredClassId!,
-        className: _restoredClassName!,
+        classId: currentClassId,
+        className: currentClassName,
       );
     }
 

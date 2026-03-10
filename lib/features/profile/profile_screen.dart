@@ -9,7 +9,6 @@ import '../../state/theme_provider.dart';
 import '../../state/locale_provider.dart';
 import '../../state/profile_pic_provider.dart';
 import '../../l10n/app_localizations.dart';
-import '../auth/login_screen.dart';
 import 'notification_screen.dart';
 import 'account_screen.dart';
 import 'help_support_screen.dart';
@@ -516,19 +515,9 @@ class ProfileScreen extends ConsumerWidget {
           TextButton(
             onPressed: () async {
               Navigator.of(ctx).pop();
-              // Leave any active class session first
-              try {
-                final service = ref.read(classSessionServiceProvider);
-                await service.leaveClass();
-                ref.read(activeClassIdProvider.notifier).state = null;
-              } catch (_) {}
+              // signOut() now handles class session cleanup internally.
+              // AuthWrapper will reactively navigate to LoginScreen.
               await ref.read(authServiceProvider).signOut();
-              if (context.mounted) {
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (_) => const LoginScreen()),
-                  (route) => false,
-                );
-              }
             },
             child: Text(t('logout'), style: const TextStyle(color: AppColors.error)),
           ),

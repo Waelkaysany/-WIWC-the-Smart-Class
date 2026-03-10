@@ -167,4 +167,79 @@ class ClassSessionService {
   void dispose() {
     _stopHeartbeat();
   }
+
+  /// Scan ALL classrooms and release any whose heartbeat has expired.
+  /// This fixes the problem of classes stuck as "taken" after a teacher
+  /// disconnects without properly leaving.
+  static Future<int> cleanupStaleClassrooms() async {
+    final db = FirebaseDatabase.instance;
+    final snapshot = await db.ref('classrooms').get();
+    if (!snapshot.exists) return 0;
+
+    int released = 0;
+    final classrooms = Map<String, dynamic>.from(snapshot.value as Map);
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    for (final entry in classrooms.entries) {
+      final data = Map<String, dynamic>.from(entry.value as Map);
+      if (data['status'] != 'taken') continue;
+
+      final takenBy = data['takenBy'];
+
+      // Case 1: takenBy is null, not a map, or is an empty map — broken state
+      if (takenBy == null || takenBy is! Map || (takenBy as Map).isEmpty) {
+        await db.ref('classrooms/${entry.key}').update({
+          'status': 'available',
+          'takenBy': null,
+        });
+        released++;
+        debugPrint('🧹 Released broken class ${entry.key} (no valid takenBy)');
+        continue;
+      }
+
+      // Case 2: Parse heartbeat, treat 0 or null as "infinitely stale"
+      int lastHeartbeat = 0;
+      try {
+        final hbVal = takenBy['lastHeartbeat'] ?? takenBy['since'];
+        if (hbVal != null && hbVal is int && hbVal > 0) {
+          lastHeartbeat = hbVal;
+        } else if (hbVal != null && hbVal is String) {
+          lastHeartbeat = int.tryParse(hbVal) ?? 0;
+        }
+      } catch (_) {
+        lastHeartbeat = 0;
+      }
+
+      // If heartbeat is 0 or missing, it's stale. Otherwise check timeout.
+      final isStale = lastHeartbeat == 0 ||
+          (now - lastHeartbeat) >= autoReleaseTimeout.inMilliseconds;
+
+      if (isStale) {
+        // End the session if it exists
+        final sessionId = takenBy['sessionId'];
+        if (sessionId != null) {
+          try {
+            await db.ref('classSessions/$sessionId').update({
+              'status': 'ENDED',
+              'endedAt': now,
+              'endReason': 'auto_released_heartbeat_expired',
+            });
+          } catch (_) {}
+        }
+
+        // Release the classroom
+        await db.ref('classrooms/${entry.key}').update({
+          'status': 'available',
+          'takenBy': null,
+        });
+        released++;
+        debugPrint('🧹 Auto-released stale class ${entry.key} (hb=$lastHeartbeat, elapsed=${now - lastHeartbeat}ms)');
+      }
+    }
+
+    if (released > 0) {
+      debugPrint('🧹 Cleanup complete: released $released stale classroom(s)');
+    }
+    return released;
+  }
 }

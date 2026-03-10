@@ -1,13 +1,21 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/environment_data.dart';
 import 'email_service.dart';
+import 'class_session_service.dart';
 
 // ── Auth Service ──
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  ClassSessionService? _sessionService;
+
+  /// Attach the session service so signOut can clean up class sessions.
+  void attachSessionService(ClassSessionService service) {
+    _sessionService = service;
+  }
 
   User? get currentUser => _auth.currentUser;
   Stream<User?> get authStateChanges => _auth.authStateChanges();
@@ -79,6 +87,14 @@ class AuthService {
   }
 
   Future<void> signOut() async {
+    // Clean up any active class session before signing out
+    try {
+      if (_sessionService != null) {
+        await _sessionService!.leaveClass();
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error leaving class during signOut: $e');
+    }
     await _auth.signOut();
   }
 
@@ -385,11 +401,98 @@ class DatabaseService {
       },
     });
   }
+
+  /// Force reset ALL stuck classrooms to available.
+  /// Called when the class selection screen loads to fix broken states.
+  Future<int> forceResetAllClassrooms() async {
+    final ref = _db.ref('classrooms');
+    final snapshot = await ref.get();
+    if (!snapshot.exists) return 0;
+
+    int released = 0;
+    final data = Map<String, dynamic>.from(snapshot.value as Map);
+
+    for (final entry in data.entries) {
+      final room = Map<String, dynamic>.from(entry.value as Map);
+      if (room['status'] == 'taken') {
+        await ref.child(entry.key).update({
+          'status': 'available',
+          'takenBy': null,
+        });
+        released++;
+        print('🔄 Force-reset classroom ${entry.key} to available');
+      }
+    }
+    return released;
+  }
+
+  // ── Support Requests ──
+  DatabaseReference get _supportRef => _db.ref('support_requests');
+
+  /// Submit a support request from a teacher or AI
+  Future<String> submitSupportRequest({
+    required String title,
+    required String description,
+    String priority = 'medium', // low, medium, high, critical
+    String source = 'teacher', // teacher, ai
+    String? teacherId,
+    String? teacherName,
+    String? teacherEmail,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    final ref = _supportRef.push();
+    
+    await ref.set({
+      'title': title,
+      'description': description,
+      'priority': priority,
+      'source': source,
+      'status': 'open', // open, in_progress, resolved
+      'teacherId': teacherId ?? user?.uid ?? 'unknown',
+      'teacherName': teacherName ?? user?.displayName ?? user?.email?.split('@').first ?? 'Unknown',
+      'teacherEmail': teacherEmail ?? user?.email ?? '',
+      'createdAt': DateTime.now().toIso8601String(),
+      'updatedAt': DateTime.now().toIso8601String(),
+    });
+
+    return ref.key!;
+  }
+
+  /// Stream all support requests
+  Stream<List<Map<String, dynamic>>> get supportRequestsStream {
+    return _supportRef.onValue.map((event) {
+      final data = event.snapshot.value as Map<dynamic, dynamic>?;
+      if (data == null) return [];
+
+      return data.entries.map((e) {
+        final val = Map<String, dynamic>.from(e.value as Map);
+        return {
+          'id': e.key as String,
+          ...val,
+        };
+      }).toList()
+        ..sort((a, b) => (b['createdAt'] as String).compareTo(a['createdAt'] as String));
+    });
+  }
 }
 
 // ── Riverpod Providers ──
 
-final authServiceProvider = Provider<AuthService>((ref) => AuthService());
+final authServiceProvider = Provider<AuthService>((ref) {
+  final auth = AuthService();
+  // Attach the session service so signOut cleans up class sessions
+  final session = ref.read(classSessionServiceProviderInternal);
+  auth.attachSessionService(session);
+  return auth;
+});
+
+/// Internal provider for ClassSessionService used by AuthService.
+/// The main classSessionServiceProvider in class_providers.dart can delegate to this.
+final classSessionServiceProviderInternal = Provider<ClassSessionService>((ref) {
+  final service = ClassSessionService();
+  ref.onDispose(() => service.dispose());
+  return service;
+});
 
 final authStateProvider = StreamProvider<User?>((ref) {
   return ref.watch(authServiceProvider).authStateChanges;
