@@ -765,7 +765,7 @@ class _LightSensorCard extends ConsumerStatefulWidget {
 }
 
 class _LightSensorCardState extends ConsumerState<_LightSensorCard> {
-  bool _autoMode = false;
+  bool _autoMode = true; // Default to Auto
   bool _light1On = false;
 
   @override
@@ -789,108 +789,24 @@ class _LightSensorCardState extends ConsumerState<_LightSensorCard> {
 
   @override
   Widget build(BuildContext context) {
-    final level = widget.lightLevel;
-    const amber = Color(0xFFFFD54F);
-    final percent = (level / 100).clamp(0.0, 1.0);
-    final label = level < 30
-        ? 'Dark'
-        : level < 60
-            ? 'Dim'
-            : level < 85
-                ? 'Bright'
-                : 'Very Bright';
-
-    return GestureDetector(
-      onTap: () => setState(() => _autoMode = !_autoMode),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          gradient: context.surfaceGradient,
-          borderRadius: BorderRadius.circular(AppRadius.card),
-          border: Border.all(color: context.cardBorder, width: 0.5),
-          boxShadow: _autoMode
-              ? [BoxShadow(color: amber.withAlpha(60), blurRadius: 8)]
-              : null,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            // Header
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Icon(Icons.wb_sunny_rounded, color: amber, size: 18),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: _autoMode ? amber.withAlpha(40) : context.surfaceLight,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: _autoMode ? amber.withAlpha(100) : context.cardBorder,
-                    ),
-                  ),
-                  child: Text(
-                    _autoMode ? 'AUTO' : 'TAP',
-                    style: TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.bold,
-                      color: _autoMode ? amber : context.textSecondary,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            // Value
-            Text(
-              '${level.toInt()}%',
-              style: TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.w900,
-                color: amber,
-              ),
-            ),
-            // Progress bar
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: percent,
-                minHeight: 4,
-                backgroundColor: context.surfaceLight,
-                color: amber,
-              ),
-            ),
-            // Label
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Light',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: context.textSecondary,
-                      ),
-                ),
-                Text(
-                  label,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: amber,
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
-              ],
-            ),
-            if (_autoMode)
-              Text(
-                _light1On ? '💡 Light 1 ON' : '💡 Light 1 OFF',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: _light1On ? amber : context.textSecondary,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-          ],
-        ),
-      ),
+    return _SensorCard(
+      icon: Icons.light_mode_rounded,
+      label: 'Light Level',
+      value: widget.lightLevel,
+      unit: '%',
+      max: 100,
+      color: const Color(0xFFFFD54F),
+      trend: _autoMode ? 'Auto: ON' : 'Auto: OFF',
+      onTap: () {
+        setState(() => _autoMode = !_autoMode);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_autoMode ? '💡 Auto Lights Enabled' : '👋 Auto Lights Disabled'),
+            backgroundColor: _autoMode ? const Color(0xFFFFD54F) : context.textSecondary,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      },
     );
   }
 }
