@@ -26,7 +26,8 @@
 // ── Library Includes
 // ──────────────────────────────────────────────────────────
 #include <DHT.h>
-#include <ESP32Servo.h> // Install: Sketch → Library → "ESP32Servo"
+// NOTE: We do NOT use ESP32Servo — we drive the servo with direct LEDC
+//       to avoid timer conflicts with LED PWM on pins 25/26.
 #include <HTTPClient.h>
 #include <LiquidCrystal_I2C.h>
 #include <MFRC522.h>
@@ -80,7 +81,7 @@ const char *DISCOVERY_PREFIX = "WIWC_ESP32:";
 // ──────────────────────────────────────────────────────────
 MFRC522 rfid(SS_PIN, RST_PIN);
 DHT dht(DHTPIN, DHTTYPE);
-Servo myServo; // Single servo — used for door lock AND window
+// No Servo object — we use ledcWrite(SERVO_PIN, ...) directly
 WebServer server(80);
 WiFiUDP udp;
 
@@ -128,7 +129,7 @@ bool doorOpened =
     false; // false = locked (servo 0°), true = unlocked (servo 90°)
 bool windowOpen = false; // false = closed (0°), true = open (90°)
 
-// NOTE: only one physical servo — myServo handles both door and window
+// NOTE: only one physical servo — driven via LEDC on SERVO_PIN
 
 // ── Timers
 // ────────────────────────────────────────────────────────────────────
@@ -151,10 +152,21 @@ void applyLight2() {
 }
 
 // =============================================================================
-//  Helper: Move the single servo for window OR door
+//  Helper: Write servo angle using direct LEDC (no ESP32Servo library)
+//  50 Hz = 20 ms period.  16-bit resolution = 65536 steps.
+//  Servo pulse: 500 µs (0°) → 2400 µs (180°)
+//    500 µs  = 500/20000  * 65536 = 1638
+//    2400 µs = 2400/20000 * 65536 = 7864
 // =============================================================================
-void applyWindowServo() { myServo.write(windowOpen ? 90 : 0); }
-void applyDoorServo() { myServo.write(doorOpened ? 90 : 0); }
+void servoWriteAngle(int angle) {
+  angle = constrain(angle, 0, 180);
+  int pulseWidth = map(angle, 0, 180, 1638, 7864);
+  ledcWrite(SERVO_PIN, pulseWidth);
+  Serial.printf("🔧 Servo → %d° (pulse=%d)\n", angle, pulseWidth);
+}
+
+void applyWindowServo() { servoWriteAngle(windowOpen ? 90 : 0); }
+void applyDoorServo() { servoWriteAngle(doorOpened ? 90 : 0); }
 
 // =============================================================================
 //  Helper: Add CORS headers so the phone can talk to this server
@@ -316,19 +328,34 @@ void setup() {
   lcd.print("WiFi Connecting");
 
   pinMode(FLAME_SENSOR_PIN, INPUT);
-  pinMode(LDR_PIN, INPUT);
   pinMode(BUZZER_PIN, OUTPUT);
   pinMode(LIGHT_LED_PIN, OUTPUT);
 
-  // LED PWM init  (ESP-IDF ledcAttach)
+  // ── ADC setup for LDR ──
+  // Pin 34 is input-only. Set attenuation to 11dB for full 0-3.3V range.
+  analogSetPinAttenuation(LDR_PIN, ADC_11db);
+  analogReadResolution(12); // 12-bit: 0-4095
+  Serial.println("📎 ADC configured: pin 34, 11dB atten, 12-bit");
+
+  // ── LED PWM init (8-bit, 5kHz) ──
   ledcAttach(LED1_PIN, 5000, 8);
   ledcAttach(LED2_PIN, 5000, 8);
   applyLight1(); // Start OFF
   applyLight2();
 
-  // Servo init — single servo for both door and window
-  myServo.attach(SERVO_PIN, 500, 2400);
-  myServo.write(0); // Start locked / closed
+  // ── Servo init via LEDC (50Hz, 16-bit) ──
+  // Must be AFTER LED init so it gets its own timer
+  ledcAttach(SERVO_PIN, 50, 16);
+  servoWriteAngle(0); // Start locked / closed
+  Serial.println("🔧 Servo LEDC attached on pin 13 @ 50Hz");
+
+  // Startup test sweep so you can SEE the servo move
+  delay(300);
+  servoWriteAngle(90); // Sweep to 90°
+  delay(500);
+  servoWriteAngle(0); // Back to 0°
+  delay(300);
+  Serial.println("✅ Servo sweep test done");
 
   // ── Connect to WiFi ──
   Serial.print("Connecting to WiFi: ");
@@ -384,13 +411,14 @@ void loop() {
     }
 
     int ldrRaw = analogRead(LDR_PIN);
-    // INVERTED: high raw = dark room = high light-need percentage
-    // Low raw = bright room = low light-need percentage
-    currentLight = map(ldrRaw, 0, 4095, 100, 0);
-    if (currentLight < 0)
-      currentLight = 0;
-    if (currentLight > 100)
-      currentLight = 100;
+    int ldrMv = analogReadMilliVolts(LDR_PIN);
+    // Use millivolts for better accuracy (0-3300 mV with 11dB atten)
+    // Higher voltage = more light hitting the LDR
+    // Map: 0mV (dark) -> 0%,  3300mV (bright) -> 100%
+    currentLight = constrain(map(ldrMv, 0, 3300, 0, 100), 0, 100);
+
+    Serial.printf("  🔆 LDR raw=%d  mV=%d  -> %d%%\n", ldrRaw, ldrMv,
+                  currentLight);
 
     isFlameDetected = (digitalRead(FLAME_SENSOR_PIN) == HIGH);
 
