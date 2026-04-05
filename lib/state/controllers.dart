@@ -297,6 +297,9 @@ class EnvironmentNotifier extends StateNotifier<EnvironmentData> {
 
   // Callback for firing notifications — set by the provider
   void Function(String type, double value)? onAlert;
+  
+  // Callback for syncing hardware device states (e.g., auto-lights)
+  void Function(Map<String, dynamic> devices)? onDevicesPolled;
 
   EnvironmentNotifier([this._iotService])
     : super(
@@ -320,6 +323,11 @@ class EnvironmentNotifier extends StateNotifier<EnvironmentData> {
         final data = await _iotService!.fetchData();
         final int newStudentsPresent = data['studentsPresent'] as int? ?? state.studentsPresent;
         final String? newUid = data['lastUID'] as String?;
+
+        // ── SYNC HARDWARE-DRIVEN DEVICE EDITS TO UI ──
+        if (onDevicesPolled != null && data.containsKey('devices')) {
+          onDevicesPolled!(Map<String, dynamic>.from(data['devices'] as Map));
+        }
 
         final newData = EnvironmentData(
           temperature: (data['temp'] as num).toDouble(),

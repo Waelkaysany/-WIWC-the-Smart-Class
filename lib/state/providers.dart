@@ -93,6 +93,10 @@ final environmentProvider =
     StateNotifierProvider<EnvironmentNotifier, EnvironmentData>((ref) {
   final iotService = ref.watch(iotServiceProvider);
   final notifier = EnvironmentNotifier(iotService);
+  
+  notifier.onDevicesPolled = (devices) {
+    ref.read(devicesProvider.notifier).updateFromMap(devices);
+  };
 
   // ── IMPORTANT: Local IoT Overrides Cloud ──
   // We no longer listen to firebaseSensorProvider here because we are using 

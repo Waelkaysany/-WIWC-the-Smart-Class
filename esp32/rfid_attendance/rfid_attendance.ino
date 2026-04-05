@@ -242,6 +242,7 @@ void sendToFirebase(String uid) {
   String url = String(FIREBASE_DB_URL) + "/classrooms/" + String(CLASSROOM_ID) +
                "/last_scanned_id.json";
   http.begin(client, url);
+  http.setTimeout(4000); // 4-second timeout to prevent stalling the main loop
   http.addHeader("Content-Type", "application/json");
   String payload = "\"" + uid + "\"";
   int code = http.PUT(payload);
@@ -254,6 +255,7 @@ void sendToGoogleSheet(String name, String uid) {
     return;
   HTTPClient http;
   http.begin(GOOGLE_SHEET_URL);
+  http.setTimeout(4000); // 4-second timeout to prevent stalling the main loop
   http.addHeader("Content-Type", "application/x-www-form-urlencoded");
   int code = http.POST("name=" + name + "&uid=" + uid);
   Serial.println("Sheets → " + String(code));
