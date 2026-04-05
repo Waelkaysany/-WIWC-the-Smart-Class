@@ -65,7 +65,7 @@ const char *CLASSROOM_ID = "a8";
 #define FLAME_SENSOR_PIN 14 // KY-026 flame sensor (HIGH = fire detected)
 #define LDR_PIN 34          // Analog LDR (light level)
 #define BUZZER_PIN 32       // Passive buzzer
-#define SERVO_PIN 13        // Servo motor for window control
+#define SERVO_PIN 13        // Servo motor (used for door lock)
 #define LED1_PIN 25         // Used as Green/Ceiling light
 #define LED2_PIN 26         // Used as Red/Window light
 #define LIGHT_LED_PIN 33    // Extra light LED
@@ -80,7 +80,7 @@ const char *DISCOVERY_PREFIX = "WIWC_ESP32:";
 // ──────────────────────────────────────────────────────────
 MFRC522 rfid(SS_PIN, RST_PIN);
 DHT dht(DHTPIN, DHTTYPE);
-Servo windowServo;
+Servo myServo; // Single servo — used for door lock AND window
 WebServer server(80);
 WiFiUDP udp;
 
@@ -128,8 +128,7 @@ bool doorOpened =
     false; // false = locked (servo 0°), true = unlocked (servo 90°)
 bool windowOpen = false; // false = closed (0°), true = open (90°)
 
-// ── Second Servo for Door Lock ──
-Servo doorServo;
+// NOTE: only one physical servo — myServo handles both door and window
 
 // ── Timers
 // ────────────────────────────────────────────────────────────────────
@@ -152,14 +151,10 @@ void applyLight2() {
 }
 
 // =============================================================================
-//  Helper: Move the servo (window)
+//  Helper: Move the single servo for window OR door
 // =============================================================================
-void applyWindowServo() { windowServo.write(windowOpen ? 90 : 0); }
-
-// =============================================================================
-//  Helper: Move the door servo (lock/unlock)
-// =============================================================================
-void applyDoorServo() { doorServo.write(doorOpened ? 90 : 0); }
+void applyWindowServo() { myServo.write(windowOpen ? 90 : 0); }
+void applyDoorServo() { myServo.write(doorOpened ? 90 : 0); }
 
 // =============================================================================
 //  Helper: Add CORS headers so the phone can talk to this server
@@ -331,17 +326,9 @@ void setup() {
   applyLight1(); // Start OFF
   applyLight2();
 
-  // Servo init — Window
-  windowServo.attach(SERVO_PIN, 500, 2400);
-  applyWindowServo(); // Start closed
-
-  // Servo init — Door Lock (shares same servo pin 13, or use another free pin)
-  // If you have a second servo for the door, change the pin below.
-  // For now we reuse the same servo: window servo doubles as door servo.
-  // IMPORTANT: If you have a dedicated door servo, wire it to a free pin
-  // and change SERVO_PIN below.
-  doorServo.attach(SERVO_PIN, 500, 2400);
-  applyDoorServo(); // Start locked
+  // Servo init — single servo for both door and window
+  myServo.attach(SERVO_PIN, 500, 2400);
+  myServo.write(0); // Start locked / closed
 
   // ── Connect to WiFi ──
   Serial.print("Connecting to WiFi: ");
@@ -397,7 +384,13 @@ void loop() {
     }
 
     int ldrRaw = analogRead(LDR_PIN);
-    currentLight = map(ldrRaw, 0, 4095, 0, 100);
+    // INVERTED: high raw = dark room = high light-need percentage
+    // Low raw = bright room = low light-need percentage
+    currentLight = map(ldrRaw, 0, 4095, 100, 0);
+    if (currentLight < 0)
+      currentLight = 0;
+    if (currentLight > 100)
+      currentLight = 100;
 
     isFlameDetected = (digitalRead(FLAME_SENSOR_PIN) == HIGH);
 
@@ -407,15 +400,20 @@ void loop() {
         autoLightEnabled ? "ON" : "OFF");
 
     // ── Automated Lighting Logic (runs on ESP32, toggleable from app) ──
+    // Controls BOTH lights: turn on when dark, off when bright
     if (autoLightEnabled) {
-      if (currentLight < 30 && !light1On) {
+      if (currentLight < 30 && (!light1On || !light2On)) {
         light1On = true;
+        light2On = true;
         applyLight1();
-        Serial.println("💡 Auto-Light: Dark -> Light 1 ON");
-      } else if (currentLight > 70 && light1On) {
+        applyLight2();
+        Serial.println("💡 Auto-Light: Dark -> BOTH Lights ON");
+      } else if (currentLight > 70 && (light1On || light2On)) {
         light1On = false;
+        light2On = false;
         applyLight1();
-        Serial.println("💡 Auto-Light: Bright -> Light 1 OFF");
+        applyLight2();
+        Serial.println("💡 Auto-Light: Bright -> BOTH Lights OFF");
       }
     }
 
