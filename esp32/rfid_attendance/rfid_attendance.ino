@@ -355,6 +355,18 @@ void loop() {
                   currentTemp, currentHum, currentLight,
                   isFlameDetected ? "YES" : "no");
 
+    // ── Automated Lighting Logic ──────────────────────────────────────────
+    // If it's dark (< 30%), make sure Light 1 is ON. If bright (> 70%), OFF.
+    if (currentLight < 30 && !light1On) {
+      light1On = true;
+      applyLight1();
+      Serial.println("💡 Auto-Light: Dark -> Light 1 ON");
+    } else if (currentLight > 70 && light1On) {
+      light1On = false;
+      applyLight1();
+      Serial.println("💡 Auto-Light: Bright -> Light 1 OFF");
+    }
+
     // If no fire, make sure alarm LED is off
     if (!isFlameDetected) {
       digitalWrite(LIGHT_LED_PIN, LOW);
