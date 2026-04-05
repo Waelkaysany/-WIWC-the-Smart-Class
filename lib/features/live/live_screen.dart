@@ -15,6 +15,7 @@ import '../../widgets/gauge.dart';
 import '../../models/environment_data.dart';
 import '../../services/firebase_service.dart';
 import '../profile/notification_screen.dart';
+import '../attendance/screens/dashboard_screen.dart';
 
 class LiveScreen extends ConsumerWidget {
   const LiveScreen({super.key});
@@ -24,6 +25,10 @@ class LiveScreen extends ConsumerWidget {
     final stats = ref.watch(classroomStatsProvider);
     final env = ref.watch(environmentProvider);
     final locale = ref.watch(localeProvider);
+    // Keep the RFID attendance bridge alive for the entire session.
+    // This watches classrooms/a8/last_scanned_id in Firebase and toggles
+    // user attendance whenever the ESP32 writes a new UID.
+    ref.watch(rfidAttendanceBridgeProvider);
     String t(String key) => AppLocalizations.tr(locale, key);
 
     return CustomScrollView(
@@ -56,6 +61,13 @@ class LiveScreen extends ConsumerWidget {
                     children: [
                       GestureDetector(
                         onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => AttendanceDashboardScreen()),
+                        ),
+                        child: _IconBtn(icon: Icons.how_to_reg_rounded),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      GestureDetector(
+                        onTap: () => Navigator.of(context).push(
                           MaterialPageRoute(builder: (_) => const NotificationScreen()),
                         ),
                         child: _IconBtn(icon: Icons.notifications_none_rounded),
@@ -78,13 +90,23 @@ class LiveScreen extends ConsumerWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  t('liveDashboard'),
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: context.textSecondary,
-                      ),
+                Expanded(
+                  child: Text(
+                    t('liveDashboard'),
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: context.textSecondary,
+                        ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-                _WellnessScore(score: _calculateWellness(env)),
+                const SizedBox(width: AppSpacing.sm),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 150),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: _WellnessScore(score: _calculateWellness(env)),
+                  ),
+                ),
               ],
             ),
           ),
@@ -109,13 +131,16 @@ class LiveScreen extends ConsumerWidget {
                     children: [
                       Icon(Icons.people_alt_rounded, color: context.primary, size: 18),
                       const SizedBox(width: AppSpacing.sm),
-                      Text(
-                        t('studentsPresent'),
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: context.textSecondary,
-                            ),
+                      Expanded(
+                        child: Text(
+                          t('studentsPresent'),
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: context.textSecondary,
+                              ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                      const Spacer(),
+                      const SizedBox(width: AppSpacing.sm),
                       _LiveBadge(),
                     ],
                   ),
@@ -157,10 +182,10 @@ class LiveScreen extends ConsumerWidget {
         SliverPadding(
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
           sliver: SliverGrid.count(
-            crossAxisCount: 3,
+            crossAxisCount: 2,
             mainAxisSpacing: AppSpacing.sm,
             crossAxisSpacing: AppSpacing.sm,
-            childAspectRatio: 0.72,
+            childAspectRatio: 1.05,
             children: [
               _SensorCard(
                 icon: Icons.thermostat_rounded,
@@ -192,6 +217,8 @@ class LiveScreen extends ConsumerWidget {
                 trend: 'Excellent',
                 onTap: () => _showSensorDetails(context, 'Air Quality', env.airQuality, '%', const Color(0xFF2BC89B)),
               ),
+              // ── Light Sensor Card (LDR) with Auto Light-1 toggle ──
+              _LightSensorCard(lightLevel: env.lightLevel, ref: ref),
             ],
           ),
         ),
@@ -240,18 +267,24 @@ class LiveScreen extends ConsumerWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        children: [
-                          Icon(Icons.insights_rounded, color: context.secondary, size: 18),
-                          const SizedBox(width: AppSpacing.sm),
-                          Text(
-                            t('activityTimeline'),
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  color: context.textSecondary,
-                                ),
-                          ),
-                        ],
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Icon(Icons.insights_rounded, color: context.secondary, size: 18),
+                            const SizedBox(width: AppSpacing.sm),
+                            Expanded(
+                              child: Text(
+                                t('activityTimeline'),
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                      color: context.textSecondary,
+                                    ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
+                      const SizedBox(width: AppSpacing.sm),
                       Text(
                         '${t('peak')}: ${stats.peakActivity}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -716,6 +749,147 @@ class _MiniMetric extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Light Level Card with Auto Light-1 control ────────────────────────────────
+class _LightSensorCard extends ConsumerStatefulWidget {
+  final double lightLevel;
+  final WidgetRef ref;
+  const _LightSensorCard({required this.lightLevel, required this.ref});
+
+  @override
+  ConsumerState<_LightSensorCard> createState() => _LightSensorCardState();
+}
+
+class _LightSensorCardState extends ConsumerState<_LightSensorCard> {
+  bool _autoMode = false;
+  bool _light1On = false;
+
+  @override
+  void didUpdateWidget(_LightSensorCard old) {
+    super.didUpdateWidget(old);
+    if (_autoMode && old.lightLevel != widget.lightLevel) {
+      _runAutoControl(widget.lightLevel);
+    }
+  }
+
+  Future<void> _runAutoControl(double level) async {
+    final iotService = ref.read(iotServiceProvider);
+    if (level < 30 && !_light1On) {
+      final ok = await iotService.toggleLight('light_1', true);
+      if (ok && mounted) setState(() => _light1On = true);
+    } else if (level >= 60 && _light1On) {
+      final ok = await iotService.toggleLight('light_1', false);
+      if (ok && mounted) setState(() => _light1On = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final level = widget.lightLevel;
+    const amber = Color(0xFFFFD54F);
+    final percent = (level / 100).clamp(0.0, 1.0);
+    final label = level < 30
+        ? 'Dark'
+        : level < 60
+            ? 'Dim'
+            : level < 85
+                ? 'Bright'
+                : 'Very Bright';
+
+    return GestureDetector(
+      onTap: () => setState(() => _autoMode = !_autoMode),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          gradient: context.surfaceGradient,
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          border: Border.all(color: context.cardBorder, width: 0.5),
+          boxShadow: _autoMode
+              ? [BoxShadow(color: amber.withAlpha(60), blurRadius: 8)]
+              : null,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // Header
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Icon(Icons.wb_sunny_rounded, color: amber, size: 18),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: _autoMode ? amber.withAlpha(40) : context.surfaceLight,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: _autoMode ? amber.withAlpha(100) : context.cardBorder,
+                    ),
+                  ),
+                  child: Text(
+                    _autoMode ? 'AUTO' : 'TAP',
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                      color: _autoMode ? amber : context.textSecondary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            // Value
+            Text(
+              '${level.toInt()}%',
+              style: TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.w900,
+                color: amber,
+              ),
+            ),
+            // Progress bar
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: percent,
+                minHeight: 4,
+                backgroundColor: context.surfaceLight,
+                color: amber,
+              ),
+            ),
+            // Label
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Light',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.textSecondary,
+                      ),
+                ),
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: amber,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ],
+            ),
+            if (_autoMode)
+              Text(
+                _light1On ? '💡 Light 1 ON' : '💡 Light 1 OFF',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: _light1On ? amber : context.textSecondary,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

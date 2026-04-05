@@ -5,6 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/environment_data.dart';
 import 'email_service.dart';
 import 'class_session_service.dart';
+import '../models/user_model.dart';
+import '../models/attendance_model.dart';
+import '../state/class_providers.dart';
+import 'package:intl/intl.dart';
 
 // ── Auth Service ──
 
@@ -134,8 +138,13 @@ class AuthService {
 //       window_left: { isOn: false }
 //       window_right: { isOn: false }
 
+
+
 class DatabaseService {
   final FirebaseDatabase _db = FirebaseDatabase.instance;
+  final String classId;
+
+  DatabaseService({this.classId = 'a8'});
 
   // ── User Profile ──
   DatabaseReference get _usersRef => _db.ref('users');
@@ -264,18 +273,133 @@ class DatabaseService {
       });
       print('DEBUG: Approval email sent=$sent for $email');
     } catch (e) {
-      // Log the error to RTDB
-      await _approvalsRef.child(uid).update({
-        'emailSent': false,
-        'emailError': e.toString(),
-        'emailAttemptedAt': DateTime.now().toIso8601String(),
-      });
       print('DEBUG ERROR: Failed to send approval email: $e');
     }
   }
+  // ── User Registration & Scanning ──
+  
+  /// Stream the last scanned UID from the ESP32
+  Stream<String?> get lastScannedUidStream {
+    return _db.ref('classrooms/$classId/last_scanned_id').onValue.map((event) {
+      return event.snapshot.value as String?;
+    });
+  }
+
+  /// Get a live stream of users who are CURRENTLY INSIDE
+  Stream<List<UserModel>> getLiveInsideUsers() {
+    return _usersRef.orderByChild('status').equalTo('inside').onValue.map((event) {
+      final List<UserModel> users = [];
+      if (event.snapshot.value != null && event.snapshot.value is Map) {
+        final Map<dynamic, dynamic> rawData = event.snapshot.value as Map<dynamic, dynamic>;
+        rawData.forEach((key, value) {
+          if (value is Map) {
+            users.add(UserModel.fromMap(key.toString(), value));
+          }
+        });
+      }
+      return users;
+    });
+  }
+
+  /// Get a live count of users who are CURRENTLY INSIDE
+  Stream<int> get insideUsersCountStream {
+    return _usersRef.orderByChild('status').equalTo('inside').onValue.map((event) {
+      if (event.snapshot.value == null) return 0;
+      if (event.snapshot.value is Map) {
+        return (event.snapshot.value as Map).length;
+      }
+      return 0;
+    });
+  }
+
+  /// Register a new user (When a teacher issues a new RFID card)
+  Future<void> registerNewUser(String rfidUid, String name, String role) async {
+    // Make sure we remove spaces and newlines
+    final uid = rfidUid.replaceAll(' ', '').toUpperCase().trim();
+    await _usersRef.child(uid).set({
+      'name': name,
+      'role': role,
+      'status': 'outside',
+      'current_session_id': "",
+      'registeredAt': ServerValue.timestamp,
+      'isApproved': true, // Auto-approve RFID-registered students/staff
+      'createdAt': DateTime.now().toIso8601String(),
+    });
+    // Clear the last scanned ID once registered
+    await _db.ref('classrooms/$classId/last_scanned_id').remove();
+  }
+
+  /// Get a list of all registered users
+  Future<List<UserModel>> getAllUsers() async {
+    final snapshot = await _usersRef.get();
+    final List<UserModel> users = [];
+    if (snapshot.exists && snapshot.value is Map) {
+      final Map<dynamic, dynamic> rawData = snapshot.value as Map<dynamic, dynamic>;
+      rawData.forEach((key, value) {
+        if (value is Map) {
+          users.add(UserModel.fromMap(key.toString(), value));
+        }
+      });
+    }
+    // Sort by name
+    users.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return users;
+  }
+
+  // ── Attendance Records ──
+
+  /// Fetch attendance for a specific date (Format: YYYY-MM-DD)
+  Future<Map<dynamic, dynamic>?> getAttendanceByDate(String date) async {
+    final snapshot = await _db.ref('attendance').child(date).get();
+    if (snapshot.exists && snapshot.value is Map) {
+      return snapshot.value as Map<dynamic, dynamic>;
+    }
+    return null;
+  }
+
+  /// Toggle User Status (Bridged from ESP32 Local HTTP)
+  Future<bool> toggleUserAttendance(String rawUid) async {
+    final uid = rawUid.replaceAll(' ', '').toUpperCase().trim();
+    final profile = await getUserProfile(uid);
+    if (profile == null) {
+      debugPrint('⚠️ Warning: Unknown user scan for UID: $uid');
+      return false; // Unknown user
+    }
+
+    final currentStatus = profile['status'] as String? ?? 'outside';
+    final newStatus = currentStatus == 'inside' ? 'outside' : 'inside';
+
+    // 1. Update live status so they appear/disappear on the Dashboard
+    await _usersRef.child(uid).update({'status': newStatus});
+
+    // 2. Log to today's history for HistoryScreen
+    final String dateStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    final int nowSecs = (DateTime.now().millisecondsSinceEpoch / 1000).round();
+    
+    final historyRef = _db.ref('attendance').child(dateStr).child(uid);
+    
+    if (newStatus == 'inside') {
+      await historyRef.update({
+        'name': profile['name'],
+        'uid': uid,
+        'status': 'inside',
+        'checkInTime': nowSecs,
+      });
+    } else {
+      await historyRef.update({
+        'status': 'outside',
+        'checkOutTime': nowSecs,
+      });
+    }
+
+    // 3. Clear the scanned ID so repetitive scans by the same card (e.g., checking in then out) trigger correctly
+    await _db.ref('classrooms/$classId/last_scanned_id').remove();
+
+    return true;
+  }
 
   // ── Sensor Data (ESP32 writes, App reads) ──
-  DatabaseReference get _sensorsRef => _db.ref('classroom/sensors');
+  DatabaseReference get _sensorsRef => _db.ref('classrooms/$classId/sensors');
 
   Stream<EnvironmentData> get sensorStream {
     return _sensorsRef.onValue.map((event) {
@@ -299,7 +423,7 @@ class DatabaseService {
   }
 
   // ── Device States (App reads/writes, ESP32 reads) ──
-  DatabaseReference get _devicesRef => _db.ref('classroom/devices');
+  DatabaseReference get _devicesRef => _db.ref('classrooms/$classId/devices');
 
   Future<void> updateDeviceState(
     String deviceId,
@@ -336,7 +460,8 @@ class DatabaseService {
   // ── Write initial device states ──
   Future<void> writeInitialDeviceStates() async {
     await _devicesRef.set({
-      'lights': {'isOn': true, 'brightness': 0.72},
+      'light_1': {'isOn': true, 'brightness': 0.72},
+      'light_2': {'isOn': true, 'brightness': 0.72},
       'door': {'isOn': true},
       'projector': {'isOn': true},
       'board': {'isOn': false},
@@ -344,7 +469,6 @@ class DatabaseService {
       'speakers': {'isOn': false},
       'window_left': {'isOn': false},
       'window_right': {'isOn': false},
-      'esp_leds': {'isOn': false},
     });
   }
 
@@ -406,6 +530,13 @@ class DatabaseService {
         'imageIndex': 5,
         'status': 'available',
       },
+      'classroom_a': {
+        'name': 'Classroom A',
+        'grade': 'ROOM A',
+        'subject': 'General',
+        'imageIndex': 6,
+        'status': 'available',
+      },
     });
   }
 
@@ -426,6 +557,9 @@ class DatabaseService {
           'status': 'available',
           'takenBy': null,
         });
+        // Also clear attendance and reset sensor count for this room
+        await _db.ref('attendance_sessions/${entry.key}').remove();
+        await _db.ref('classrooms/${entry.key}/sensors/studentsPresent').set(0);
         released++;
         print('🔄 Force-reset classroom ${entry.key} to available');
       }
@@ -488,6 +622,13 @@ class DatabaseService {
 
 // ── Riverpod Providers ──
 
+final databaseServiceProvider = Provider<DatabaseService>(
+  (ref) {
+    final activeClassId = ref.watch(activeClassIdProvider);
+    return DatabaseService(classId: activeClassId ?? 'a8');
+  },
+);
+
 final authServiceProvider = Provider<AuthService>((ref) {
   final auth = AuthService();
   // Attach the session service so signOut cleans up class sessions
@@ -511,19 +652,31 @@ final authStateProvider = StreamProvider<User?>((ref) {
 });
 
 final userProfileProvider = StreamProvider<Map<String, dynamic>?>((ref) {
-  final user = ref.watch(authStateProvider).value;
-  if (user == null) return Stream.value(null);
+  final authAsync = ref.watch(authStateProvider);
+  
+  // Return null if we are definitely not logged in.
+  // If loading, we stay in the previous state if we had one.
+  if (authAsync.hasValue && authAsync.value == null) {
+    return Stream.value(null);
+  }
+  
+  final user = authAsync.value;
+  if (user == null) {
+    // If we're loading and don't have a value yet, return a persistent loading stream
+    // or just return an empty stream to avoid unmounting.
+    return const Stream.empty();
+  }
 
-  final db = ref.watch(databaseServiceProvider);
-  return db._usersRef.child(user.uid).onValue.map((event) {
+  // Profile is global, don't watch databaseServiceProvider which depends on classId
+  return FirebaseDatabase.instance
+      .ref('users')
+      .child(user.uid)
+      .onValue
+      .map((event) {
     final data = event.snapshot.value as Map?;
     return data?.cast<String, dynamic>();
   });
 });
-
-final databaseServiceProvider = Provider<DatabaseService>(
-  (ref) => DatabaseService(),
-);
 
 final firebaseSensorProvider = StreamProvider<EnvironmentData>((ref) {
   return ref.watch(databaseServiceProvider).sensorStream;

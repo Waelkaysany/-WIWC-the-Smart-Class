@@ -4,13 +4,17 @@ class EnvironmentData {
   final double lightLevel;
   final int studentsPresent;
   final double airQuality;
+  final String? lastScannedUser;
+  final String? lastScannedUID;
 
   const EnvironmentData({
     required this.temperature,
     required this.humidity,
     required this.lightLevel,
     required this.studentsPresent,
-    this.airQuality = 95, // Default to a healthy 95%
+    this.airQuality = 95, 
+    this.lastScannedUser,
+    this.lastScannedUID,
   });
 
   EnvironmentData copyWith({
@@ -19,6 +23,8 @@ class EnvironmentData {
     double? lightLevel,
     int? studentsPresent,
     double? airQuality,
+    String? lastScannedUser,
+    String? lastScannedUID,
   }) {
     return EnvironmentData(
       temperature: temperature ?? this.temperature,
@@ -26,6 +32,8 @@ class EnvironmentData {
       lightLevel: lightLevel ?? this.lightLevel,
       studentsPresent: studentsPresent ?? this.studentsPresent,
       airQuality: airQuality ?? this.airQuality,
+      lastScannedUser: lastScannedUser ?? this.lastScannedUser,
+      lastScannedUID: lastScannedUID ?? this.lastScannedUID,
     );
   }
 }

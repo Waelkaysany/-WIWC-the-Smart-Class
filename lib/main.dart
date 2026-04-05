@@ -8,11 +8,17 @@ import 'app.dart';
 import 'theme/app_theme.dart';
 import 'services/notification_service.dart';
 
+import 'package:shared_preferences/shared_preferences.dart';
+
+late SharedPreferences prefs;
 bool firebaseInitialized = false;
 
 void main() async {
   try {
     WidgetsFlutterBinding.ensureInitialized();
+    
+    // Load preferences synchronously for global access
+    prefs = await SharedPreferences.getInstance();
 
     // Initialize notifications (non-blocking if it fails)
     try {
@@ -28,8 +34,6 @@ void main() async {
       );
       firebaseInitialized = true;
       debugPrint('✅ Firebase initialized successfully');
-      // Reset studentsPresent to 0 (real count comes from ESP32 RFID)
-      FirebaseDatabase.instance.ref('classroom/sensors/studentsPresent').set(0);
     } catch (e) {
       debugPrint('⚠️ Firebase init error: $e');
       firebaseInitialized = false;

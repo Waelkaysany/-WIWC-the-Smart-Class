@@ -15,7 +15,6 @@ import 'features/auth/login_screen.dart';
 import 'features/classes/class_selection_screen.dart';
 import 'features/classes/class_dashboard_shell.dart';
 import 'state/class_providers.dart';
-import 'state/providers.dart';
 import 'services/firebase_service.dart';
 import 'package:firebase_database/firebase_database.dart';
 
@@ -65,46 +64,52 @@ class AuthWrapper extends ConsumerWidget {
         }
         
         // Deep check for approval
-        return ref.watch(userProfileProvider).when(
-          data: (profile) {
-            if (profile == null) {
-              // Profile missing from DB?
-              return Scaffold(
-                body: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const CircularProgressIndicator(),
-                      const SizedBox(height: 20),
-                      const Text('Setting up your profile...'),
-                      const SizedBox(height: 10),
-                      const Text(
-                        'If this takes too long, your account might need manual setup.',
-                        style: TextStyle(fontSize: 12, color: Colors.grey),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 20),
-                      TextButton(
-                        onPressed: () => ref.read(authServiceProvider).signOut(),
-                        child: const Text('Back to Login'),
-                      ),
-                    ],
-                  ),
+        final profileAsync = ref.watch(userProfileProvider);
+
+        // If we have data (even if refreshing), use it to avoid flicker
+        if (profileAsync.hasValue) {
+          final profile = profileAsync.value;
+          if (profile == null) {
+            // Profile missing from DB?
+            return Scaffold(
+              body: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const CircularProgressIndicator(),
+                    const SizedBox(height: 20),
+                    const Text('Setting up your profile...'),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'If this takes too long, your account might need manual setup.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 20),
+                    TextButton(
+                      onPressed: () => ref.read(authServiceProvider).signOut(),
+                      child: const Text('Back to Login'),
+                    ),
+                  ],
                 ),
-              );
-            }
+              ),
+            );
+          }
 
-            final isApproved = profile['isApproved'] ?? false;
-            final role = profile['role'] ?? 'student';
+          final isApproved = profile['isApproved'] ?? false;
+          final role = profile['role'] ?? 'student';
 
-            if (role == 'teacher' && !isApproved) {
-              return const PendingApprovalScreen();
-            }
+          if (role == 'teacher' && !isApproved) {
+            return const PendingApprovalScreen();
+          }
 
-            // Key on user UID so widget is recreated on re-login
-            return _ClassLoadingWrapper(key: ValueKey(user.uid));
-          },
-          loading: () => const Scaffold(
+          // Key on user UID so widget is recreated on re-login
+          return _ClassLoadingWrapper(key: ValueKey(user.uid));
+        }
+
+        // Only show loading if we have NO value yet and are loading
+        if (profileAsync.isLoading) {
+          return const Scaffold(
             body: Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -115,24 +120,26 @@ class AuthWrapper extends ConsumerWidget {
                 ],
               ),
             ),
-          ),
-          error: (err, _) => Scaffold(
-            body: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.error_outline, color: Colors.red, size: 48),
-                    const SizedBox(height: 16),
-                    Text('Profile Error: $err', textAlign: TextAlign.center),
-                    const SizedBox(height: 24),
-                    ElevatedButton(
-                      onPressed: () => ref.read(authServiceProvider).signOut(),
-                      child: const Text('Sign Out & Try Again'),
-                    ),
-                  ],
-                ),
+          );
+        }
+
+        // Error state
+        return Scaffold(
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.red, size: 48),
+                  const SizedBox(height: 16),
+                  Text('Profile Error: ${profileAsync.error}', textAlign: TextAlign.center),
+                  const SizedBox(height: 24),
+                  ElevatedButton(
+                    onPressed: () => ref.read(authServiceProvider).signOut(),
+                    child: const Text('Sign Out & Try Again'),
+                  ),
+                ],
               ),
             ),
           ),

@@ -2,11 +2,13 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/ai_chat_service.dart';
 import '../services/scheduler_service.dart';
+import '../state/class_providers.dart';
 
 // ── AI Chat Service Provider ──
 final aiChatServiceProvider = Provider<AiChatService>((ref) {
   final db = FirebaseDatabase.instance;
-  return AiChatService(db);
+  final activeClassId = ref.watch(activeClassIdProvider);
+  return AiChatService(db, classId: activeClassId ?? 'a8');
 });
 
 // ── Scheduler Service Provider ──

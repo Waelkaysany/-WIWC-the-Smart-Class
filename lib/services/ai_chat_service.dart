@@ -47,6 +47,7 @@ class ActionProposal {
 
 class AiChatService {
   final FirebaseDatabase _db;
+  final String classId;
   late final GenerativeModel _model;
   late final ChatSession _chat;
   final _uuid = const Uuid();
@@ -55,7 +56,17 @@ class AiChatService {
   final Map<String, ActionProposal> _pendingProposals = {};
 
   // System prompt
-  static const String _systemPrompt = '''
+  AiChatService(this._db, {this.classId = 'a8'}) {
+    _model = FirebaseAI.googleAI().generativeModel(
+      model: 'gemini-2.5-flash',
+      tools: _buildTools(),
+      systemInstruction: Content.system(_getSystemPrompt()),
+    );
+    _chat = _model.startChat();
+  }
+
+  String _getSystemPrompt() {
+    return '''
 You are WIWC Assistant, the AI assistant for the WIWC Smart Classroom system.
 You help teachers and admins manage classroom devices, check room status, schedule actions, AND answer questions about the app itself.
 
@@ -72,10 +83,11 @@ DEVICE CONTROL RULES
 ═══════════════════════════════════
 CLASSROOM INFO
 ═══════════════════════════════════
-- The classroom is called "Classroom A" with id "classroom_a".
-- Devices: lights, door, projector, board (smart board), ac (air conditioner), speakers, window_left, window_right.
+- The current classroom ID is "$classId".
+- Devices: light_1 (Light 1), light_2 (Light 2), door, projector, board (smart board), ac (air conditioner), speakers, window_left, window_right.
 - Device states: isOn (true/false), brightness (0.0-1.0 for lights), mode (for AC: Cool/Heat/Fan).
 - For "close/open windows": window_left and window_right are the two window devices. Propose action for EACH window separately.
+- For "lights": There are TWO lights: light_1 and light_2. Control them individually or both.
 
 ═══════════════════════════════════
 SMART RECOMMENDATIONS
@@ -189,14 +201,6 @@ GENERAL BEHAVIOR
 - If you don't know something, say so honestly.
 - You can also explain how the WIWC system works: it monitors classroom environment with sensors and lets authorized users control devices remotely.
 ''';
-
-  AiChatService(this._db) {
-    _model = FirebaseAI.googleAI().generativeModel(
-      model: 'gemini-2.5-flash',
-      tools: _buildTools(),
-      systemInstruction: Content.system(_systemPrompt),
-    );
-    _chat = _model.startChat();
   }
 
   /// Build the tool declarations for function calling.
@@ -328,6 +332,7 @@ GENERAL BEHAVIOR
   /// Send a message to the AI and get a response. Handles the tool-calling loop.
   Future<AiChatMessage> sendMessage(String userMessage) async {
     try {
+      debugPrint('📨 AI: Sending message "$userMessage" for class "$classId"');
       var response = await _chat.sendMessage(Content.text(userMessage));
 
       // Tool-calling loop
@@ -336,26 +341,32 @@ GENERAL BEHAVIOR
         final functionCalls = response.functionCalls.toList();
         if (functionCalls.isEmpty) break;
 
-        // Process each function call and send responses one at a time
+        debugPrint('🤖 AI: Found ${functionCalls.length} function calls');
+        final responses = <FunctionResponse>[];
         ActionProposal? lastProposal;
 
         for (final call in functionCalls) {
-          debugPrint('🤖 AI calling tool: ${call.name}(${call.args})');
+          debugPrint('🛠️ AI: Calling tool "${call.name}" with args: ${call.args}');
           final result = await _handleToolCall(call.name, call.args);
+          responses.add(FunctionResponse(call.name, result));
 
           // Check if this was a proposal
           if (call.name == 'proposeDeviceAction' && result.containsKey('proposalId')) {
             lastProposal = _pendingProposals[result['proposalId']];
           }
-
-          // Send function response back
-          response = await _chat.sendMessage(
-            Content.functionResponse(call.name, result),
-          );
         }
 
-        // If we had a proposal, return the message with the proposal attached
-        if (lastProposal != null && response.text != null) {
+        // Send function responses back
+        // Important: All function calls in a turn MUST have a corresponding response.
+        debugPrint('📤 AI: Sending ${responses.length} function responses...');
+        response = await _chat.sendMessage(
+          Content('function', responses),
+        );
+
+        // If we have a successful continuation and a proposal was made,
+        // we can return it.
+        if (lastProposal != null && response.functionCalls.isEmpty && response.text != null) {
+          debugPrint('✅ AI: Returning proposal: ${lastProposal.id}');
           return AiChatMessage(
             text: response.text!,
             isUser: false,
@@ -365,16 +376,25 @@ GENERAL BEHAVIOR
         }
       }
 
-      final text = response.text ?? 'I apologize, I couldn\'t process that request. Could you try again?';
+      final text = response.text ?? 'I apologize, but I\'m having trouble finding the right words. Could you rephrase that?';
+      debugPrint('📩 AI: Response complete');
       return AiChatMessage(
         text: text,
         isUser: false,
         timestamp: DateTime.now(),
       );
-    } catch (e) {
-      debugPrint('❌ AI Error: $e');
+    } catch (e, stack) {
+      debugPrint('❌ AI Critical Error: $e');
+      debugPrint(stack.toString());
+      
+      // Return a slightly more helpful error message for debugging
+      String errorMsg = 'Sorry, it looks like something went wrong while I was thinking ($e).';
+      if (e.toString().contains('Invalid turn')) {
+        errorMsg = 'Sorry, my conversation history got a bit mixed up. Please try starting a new message.';
+      }
+
       return AiChatMessage(
-        text: 'Sorry, I encountered an error. Please try again in a moment.',
+        text: errorMsg,
         isUser: false,
         timestamp: DateTime.now(),
       );
@@ -383,42 +403,56 @@ GENERAL BEHAVIOR
 
   /// Handle a tool call from the AI model.
   Future<Map<String, dynamic>> _handleToolCall(String name, Map<String, dynamic> args) async {
-    switch (name) {
-      case 'getRooms':
-        return _toolGetRooms();
-      case 'listDevices':
-        return _toolListDevices(args['roomId'] as String? ?? 'classroom_a');
-      case 'getRoomStatus':
-        return _toolGetRoomStatus(args['roomId'] as String? ?? 'classroom_a');
-      case 'proposeDeviceAction':
-        return _toolProposeDeviceAction(
-          args['deviceId'] as String,
-          args['action'] as String,
-          args['description'] as String? ?? '',
-        );
-      case 'scheduleDeviceAction':
-        return _toolScheduleDeviceAction(
-          args['deviceId'] as String,
-          args['action'] as String,
-          (args['delayMinutes'] as num).toInt(),
-          args['description'] as String? ?? '',
-        );
-      case 'cancelScheduledAction':
-        return _toolCancelScheduledAction(args['actionId'] as String);
-      case 'getScheduledActions':
-        return _toolGetScheduledActions();
-      case 'getRecentLogs':
-        return _toolGetRecentLogs();
-      case 'getDeviceStatus':
-        return _toolGetDeviceStatus(args['deviceId'] as String);
-      case 'reportProblem':
-        return _toolReportProblem(
-          (args['title'] ?? 'Issue reported by teacher').toString(),
-          (args['description'] ?? 'No description provided').toString(),
-          (args['priority'] ?? 'medium').toString(),
-        );
-      default:
-        return {'error': 'Unknown tool: $name'};
+    try {
+      switch (name) {
+        case 'getRooms':
+          return _toolGetRooms();
+        case 'listDevices':
+          return _toolListDevices(args['roomId']?.toString() ?? classId);
+        case 'getRoomStatus':
+          return _toolGetRoomStatus(args['roomId']?.toString() ?? classId);
+        case 'proposeDeviceAction':
+          final deviceId = args['deviceId']?.toString() ?? '';
+          final action = args['action']?.toString() ?? '';
+          final description = args['description']?.toString() ?? '';
+          if (deviceId.isEmpty || action.isEmpty) {
+            return {'error': 'Missing deviceId or action'};
+          }
+          return _toolProposeDeviceAction(deviceId, action, description);
+        case 'scheduleDeviceAction':
+          final deviceId = args['deviceId']?.toString() ?? '';
+          final action = args['action']?.toString() ?? '';
+          // Safely convert num/String to int
+          final delayVal = args['delayMinutes'];
+          final delay = delayVal is num ? delayVal.toInt() : (int.tryParse(delayVal?.toString() ?? '') ?? 5);
+          final description = args['description']?.toString() ?? '';
+          if (deviceId.isEmpty || action.isEmpty) {
+            return {'error': 'Missing deviceId or action'};
+          }
+          return _toolScheduleDeviceAction(deviceId, action, delay, description);
+        case 'cancelScheduledAction':
+          final actionId = args['actionId']?.toString() ?? '';
+          if (actionId.isEmpty) return {'error': 'Missing actionId'};
+          return _toolCancelScheduledAction(actionId);
+        case 'getScheduledActions':
+          return _toolGetScheduledActions();
+        case 'getRecentLogs':
+          return _toolGetRecentLogs();
+        case 'getDeviceStatus':
+          final deviceId = args['deviceId']?.toString() ?? '';
+          if (deviceId.isEmpty) return {'error': 'Missing deviceId'};
+          return _toolGetDeviceStatus(deviceId);
+        case 'reportProblem':
+          final title = args['title']?.toString() ?? 'Issue reported by teacher';
+          final description = args['description']?.toString() ?? 'No description provided';
+          final priority = args['priority']?.toString() ?? 'medium';
+          return _toolReportProblem(title, description, priority);
+        default:
+          return {'error': 'Unknown tool: $name'};
+      }
+    } catch (e) {
+       debugPrint('❌ Exception in tool handler: $e');
+      return {'error': 'Exception during tool call: $e'};
     }
   }
 
@@ -428,11 +462,11 @@ GENERAL BEHAVIOR
     return {
       'rooms': [
         {
-          'id': 'classroom_a',
-          'name': 'Classroom A',
+          'id': classId,
+          'name': 'Classroom ${classId.toUpperCase()}',
           'building': 'Main Building',
           'floor': '1st Floor',
-          'capacity': 32,
+          'status': 'active',
         },
       ],
     };
@@ -440,7 +474,7 @@ GENERAL BEHAVIOR
 
   Future<Map<String, dynamic>> _toolListDevices(String roomId) async {
     try {
-      final snapshot = await _db.ref('classroom/devices').get();
+      final snapshot = await _db.ref('classrooms/$classId/devices').get();
       if (!snapshot.exists) {
         return {'devices': [], 'message': 'No devices found'};
       }
@@ -467,7 +501,7 @@ GENERAL BEHAVIOR
 
   Future<Map<String, dynamic>> _toolGetRoomStatus(String roomId) async {
     try {
-      final snapshot = await _db.ref('classroom/sensors').get();
+      final snapshot = await _db.ref('classrooms/$classId/sensors').get();
       if (!snapshot.exists) {
         return {'error': 'No sensor data available'};
       }
@@ -475,7 +509,7 @@ GENERAL BEHAVIOR
       final data = Map<String, dynamic>.from(snapshot.value as Map);
       return {
         'roomId': roomId,
-        'roomName': 'Classroom A',
+        'roomName': 'Classroom ${classId.toUpperCase()}',
         'sensors': {
           'temperature': data['temperature'] ?? 0,
           'humidity': data['humidity'] ?? 0,
@@ -511,7 +545,7 @@ GENERAL BEHAVIOR
     }
 
     // Validate device
-    final deviceSnapshot = await _db.ref('classroom/devices/$deviceId').get();
+    final deviceSnapshot = await _db.ref('classrooms/$classId/devices/$deviceId').get();
     if (!deviceSnapshot.exists) {
       return {'error': 'Device "$deviceId" not found.'};
     }
@@ -522,7 +556,7 @@ GENERAL BEHAVIOR
       id: proposalId,
       deviceId: deviceId,
       deviceName: _deviceNames[deviceId] ?? deviceId,
-      roomId: 'classroom_a',
+      roomId: classId,
       action: action,
       description: description,
     );
@@ -548,14 +582,14 @@ GENERAL BEHAVIOR
 
     try {
       // Get current state for logging
-      final deviceSnapshot = await _db.ref('classroom/devices/${proposal.deviceId}').get();
+      final deviceSnapshot = await _db.ref('classrooms/$classId/devices/${proposal.deviceId}').get();
       final previousState = deviceSnapshot.exists
           ? Map<String, dynamic>.from(deviceSnapshot.value as Map)
           : {};
 
       // Update device state
       final bool newIsOn = proposal.action == 'on' || proposal.action == 'open';
-      await _db.ref('classroom/devices/${proposal.deviceId}').update({
+      await _db.ref('classrooms/$classId/devices/${proposal.deviceId}').update({
         'isOn': newIsOn,
       });
 
@@ -598,7 +632,7 @@ GENERAL BEHAVIOR
       return {'error': 'Delay must be between 1 and 480 minutes (8 hours max).'};
     }
 
-    final deviceSnapshot = await _db.ref('classroom/devices/$deviceId').get();
+    final deviceSnapshot = await _db.ref('classrooms/$classId/devices/$deviceId').get();
     if (!deviceSnapshot.exists) return {'error': 'Device "$deviceId" not found.'};
 
     final actionId = _uuid.v4();
@@ -710,7 +744,7 @@ GENERAL BEHAVIOR
 
   Future<Map<String, dynamic>> _toolGetDeviceStatus(String deviceId) async {
     try {
-      final snapshot = await _db.ref('classroom/devices/$deviceId').get();
+      final snapshot = await _db.ref('classrooms/$classId/devices/$deviceId').get();
       if (!snapshot.exists) return {'error': 'Device "$deviceId" not found.'};
 
       final data = Map<String, dynamic>.from(snapshot.value as Map);
@@ -728,7 +762,8 @@ GENERAL BEHAVIOR
 
   // Human-readable device names
   static const _deviceNames = {
-    'lights': 'Lights',
+    'light_1': 'Light 1',
+    'light_2': 'Light 2',
     'door': 'Door Lock',
     'projector': 'Projector',
     'board': 'Smart Board',

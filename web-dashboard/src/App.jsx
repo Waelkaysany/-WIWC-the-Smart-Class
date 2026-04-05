@@ -8,6 +8,7 @@ import SuperAdminLogin from './pages/SuperAdminLogin';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import TeachersList from './pages/TeachersList';
 import SupportRequests from './pages/SupportRequests';
+import AdminChat from './pages/AdminChat';
 
 function PrivateRoute({ children }) {
   const { currentUser } = useAuth();
@@ -60,6 +61,14 @@ function App() {
               element={
                 <SuperAdminRoute>
                   <SupportRequests />
+                </SuperAdminRoute>
+              }
+            />
+            <Route
+              path="/superadmin/chat"
+              element={
+                <SuperAdminRoute>
+                  <AdminChat />
                 </SuperAdminRoute>
               }
             />

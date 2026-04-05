@@ -62,7 +62,7 @@ class _ClassSelectionScreenState extends ConsumerState<ClassSelectionScreen>
 
     // Force reset any stuck classrooms to available
     ClassSessionService.cleanupStaleClassrooms();
-    DatabaseService().forceResetAllClassrooms();
+    // DatabaseService().forceResetAllClassrooms(); // Removed to prevent clearing active sessions
   }
 
   @override

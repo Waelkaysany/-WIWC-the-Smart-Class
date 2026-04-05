@@ -13,15 +13,17 @@ class DataSyncWrapper extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     // ── Sync Environment Data ──
     ref.listen(firebaseSensorProvider, (previous, next) {
-      if (next.hasValue) {
-        ref.read(environmentProvider.notifier).update(next.value!);
+      final value = next.asData?.value;
+      if (value != null) {
+        ref.read(environmentProvider.notifier).update(value);
       }
     });
 
     // ── Sync Devices Data ──
     ref.listen(firebaseDevicesProvider, (previous, next) {
-      if (next.hasValue) {
-        ref.read(devicesProvider.notifier).updateFromMap(next.value!);
+      final value = next.asData?.value;
+      if (value != null) {
+        ref.read(devicesProvider.notifier).updateFromMap(value);
       }
     });
     

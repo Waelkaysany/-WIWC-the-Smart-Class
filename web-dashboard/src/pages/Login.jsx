@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { useSuperAdmin } from '../context/SuperAdminContext';
 import { motion } from 'framer-motion';
 import { Lock, Mail, ChevronRight, Loader2 } from 'lucide-react';
-
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login: firebaseLogin } = useAuth();
+  const { login: superAdminLogin } = useSuperAdmin();
   const navigate = useNavigate();
 
   async function handleSubmit(e) {
@@ -17,7 +18,25 @@ export default function Login() {
     try {
       setError('');
       setLoading(true);
-      await login(email, password);
+
+      // 👑 NEW: Check if it's the SuperAdmin attempting to log into the main page
+      if (email.toLowerCase() === 'kyotaka' || email.toLowerCase() === 'kyotaka@wiwc.com') {
+        const success = superAdminLogin('Kyotaka', password);
+        if (success) {
+          navigate('/superadmin');
+          return;
+        } else {
+          throw new Error('Invalid SuperAdmin credentials');
+        }
+      }
+
+      // If user typed a regular username without @, append a default domain so Firebase Auth works
+      let formattedEmail = email;
+      if (!email.includes('@')) {
+        formattedEmail = `${email}@wiwc.com`;
+      }
+
+      await firebaseLogin(formattedEmail, password);
       navigate('/');
     } catch (err) {
       setError('Failed to log in. Check your credentials.');
@@ -79,18 +98,18 @@ export default function Login() {
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-300 ml-1">Email</label>
+            <label className="text-sm font-medium text-gray-300 ml-1">Username or Email</label>
             <div className="relative group">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <Mail className="h-5 w-5 text-gray-500 group-focus-within:text-primary transition-colors" />
               </div>
               <input
-                type="email"
+                type="text"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="block w-full pl-10 pr-3 py-3 bg-black/20 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent transition-all"
-                placeholder="admin@wiwc.com"
+                placeholder="Enter username or email"
               />
             </div>
           </div>

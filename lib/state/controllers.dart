@@ -6,6 +6,7 @@ import '../models/classroom_stats.dart';
 import '../models/device.dart';
 import '../models/environment_data.dart';
 import '../services/firebase_service.dart';
+import '../services/iot_service.dart';
 
 // ── Classroom Stats ──
 
@@ -73,17 +74,27 @@ class ClassroomStatsNotifier extends StateNotifier<ClassroomStats> {
 
 class DevicesNotifier extends StateNotifier<List<Device>> {
   final DatabaseService? _dbService;
+  final IotService? _iotService;
 
-  DevicesNotifier([this._dbService])
+  DevicesNotifier([this._dbService, this._iotService])
     : super([
         const Device(
-          id: 'lights',
-          name: 'Lights',
+          id: 'light_1',
+          name: 'Light 1',
           icon: Icons.lightbulb_outline,
-          isOn: true,
-          subtitle: '4 devices',
+          isOn: false,
+          subtitle: 'Main ceiling',
           category: 'Lights',
-          brightness: 0.72,
+          brightness: 1.0,
+        ),
+        const Device(
+          id: 'light_2',
+          name: 'Light 2',
+          icon: Icons.lightbulb_outline,
+          isOn: false,
+          subtitle: 'Window side',
+          category: 'Lights',
+          brightness: 1.0,
         ),
         const Device(
           id: 'door',
@@ -97,17 +108,9 @@ class DevicesNotifier extends StateNotifier<List<Device>> {
           id: 'projector',
           name: 'Projector',
           icon: Icons.videocam_outlined,
-          isOn: true,
+          isOn: false,
           subtitle: 'Epson EB-X51',
           category: 'Projector',
-        ),
-        const Device(
-          id: 'board',
-          name: 'Smart Board',
-          icon: Icons.desktop_windows_outlined,
-          isOn: false,
-          subtitle: 'Interactive panel',
-          category: 'Board',
         ),
         const Device(
           id: 'ac',
@@ -127,6 +130,14 @@ class DevicesNotifier extends StateNotifier<List<Device>> {
           category: 'Speaker',
         ),
         const Device(
+          id: 'board',
+          name: 'Smart Board',
+          icon: Icons.desktop_windows_outlined,
+          isOn: false,
+          subtitle: 'Interactive panel',
+          category: 'Board',
+        ),
+        const Device(
           id: 'window_left',
           name: 'Window Left',
           icon: Icons.window_outlined,
@@ -142,20 +153,23 @@ class DevicesNotifier extends StateNotifier<List<Device>> {
           subtitle: 'Right side',
           category: 'Windows',
         ),
-        const Device(
-          id: 'esp_leds',
-          name: 'ESP32 LEDs',
-          icon: Icons.lightbulb_circle,
-          isOn: false,
-          subtitle: 'Hardware LEDs',
-          category: 'Lights', // Grouping it with lights
-        ),
       ]);
 
-  Future<void> _updateRemote(String id, Map<String, dynamic> data) async {
+  Future<void> _updateRemote(
+    String id,
+    Map<String, dynamic> data,
+  ) async {
     try {
+      // 1. Cloud backup via Firebase
       if (_dbService != null) {
-        await _dbService!.updateDeviceState(id, data);
+        await _dbService.updateDeviceState(id, data);
+      }
+
+      // 2. Direct local HTTP command to ESP32
+      if (_iotService != null) {
+        final isOn = data['isOn'] as bool? ?? false;
+        final brightness = (data['brightness'] as num?)?.toDouble();
+        await _iotService.sendCommand(id, isOn: isOn, brightness: brightness);
       }
     } catch (e) {
       debugPrint('Error updating device $id: $e');
@@ -189,14 +203,18 @@ class DevicesNotifier extends StateNotifier<List<Device>> {
       (d) => d.id == id,
       orElse: () => state.first,
     );
-    final newState = !device.isOn;
+    final newIsOn = !device.isOn;
 
     state = [
       for (final d in state)
-        if (d.id == id) d.copyWith(isOn: newState) else d,
+        if (d.id == id) d.copyWith(isOn: newIsOn) else d,
     ];
 
-    _updateRemote(id, {'isOn': newState});
+    // Pass brightness so the ESP32 can set the correct PWM level
+    _updateRemote(id, {
+      'isOn': newIsOn,
+      if (device.brightness != null) 'brightness': device.brightness,
+    });
   }
 
   void setBrightness(String id, double value) {
@@ -227,7 +245,8 @@ class DevicesNotifier extends StateNotifier<List<Device>> {
           for (final d in state)
             d.copyWith(
               isOn:
-                  d.id == 'lights' ||
+                  d.id == 'light_1' ||
+                  d.id == 'light_2' ||
                   d.id == 'projector' ||
                   d.id == 'ac' ||
                   d.id == 'speakers',
@@ -238,7 +257,7 @@ class DevicesNotifier extends StateNotifier<List<Device>> {
         newState = [
           for (final d in state)
             d.copyWith(
-              isOn: d.id == 'lights' || d.id == 'door' || d.id == 'ac',
+              isOn: d.id == 'light_1' || d.id == 'light_2' || d.id == 'door' || d.id == 'ac',
             ),
         ];
         break;
@@ -246,8 +265,8 @@ class DevicesNotifier extends StateNotifier<List<Device>> {
         newState = [
           for (final d in state)
             d.copyWith(
-              isOn: d.id != 'lights',
-              brightness: d.id == 'lights' ? 0.3 : d.brightness,
+              isOn: d.id != 'light_1' && d.id != 'light_2',
+              brightness: (d.id == 'light_1' || d.id == 'light_2') ? 0.3 : d.brightness,
             ),
         ];
         break;
@@ -273,10 +292,13 @@ class DevicesNotifier extends StateNotifier<List<Device>> {
 }
 
 class EnvironmentNotifier extends StateNotifier<EnvironmentData> {
+  final IotService? _iotService;
+  Timer? _pollingTimer;
+
   // Callback for firing notifications — set by the provider
   void Function(String type, double value)? onAlert;
 
-  EnvironmentNotifier()
+  EnvironmentNotifier([this._iotService])
     : super(
         const EnvironmentData(
           temperature: 23,
@@ -285,7 +307,36 @@ class EnvironmentNotifier extends StateNotifier<EnvironmentData> {
           studentsPresent: 0,
           airQuality: 95,
         ),
-      );
+      ) {
+    if (_iotService != null) {
+      _startPolling();
+    }
+  }
+
+  void _startPolling() {
+    _pollingTimer?.cancel();
+    _pollingTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+      try {
+        final data = await _iotService!.fetchData();
+        final int newStudentsPresent = data['studentsPresent'] as int? ?? state.studentsPresent;
+        final String? newUid = data['lastUID'] as String?;
+
+        final newData = EnvironmentData(
+          temperature: (data['temp'] as num).toDouble(),
+          humidity: (data['hum'] as num).toDouble(),
+          lightLevel: (data['light'] as num).toDouble(),
+          studentsPresent: newStudentsPresent,
+          lastScannedUser: data['lastUser'] as String?,
+          lastScannedUID: newUid,
+          airQuality: state.airQuality,
+        );
+        
+        update(newData);
+      } catch (e) {
+        debugPrint('IoT Polling Error: $e');
+      }
+    });
+  }
 
   void update(EnvironmentData data) {
     if (data.temperature > 30) onAlert?.call('temperature', data.temperature);
@@ -297,6 +348,7 @@ class EnvironmentNotifier extends StateNotifier<EnvironmentData> {
 
   @override
   void dispose() {
+    _pollingTimer?.cancel();
     super.dispose();
   }
 }

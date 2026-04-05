@@ -130,7 +130,7 @@ class HelpSupportScreen extends ConsumerWidget {
                   // Email card
                   _ContactCard(
                     icon: Icons.email_rounded,
-                    iconGradient: const [Color(0xFF8A7CFF), Color(0xFF6B5CE7)],
+                    iconGradient: const [Color(0xFFFF8A7C), Color(0xFFE76B5C)],
                     title: t('emailUs'),
                     subtitle: t('emailUsDesc'),
                     value: 'support@wiwc-smart.com',

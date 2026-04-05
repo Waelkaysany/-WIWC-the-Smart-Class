@@ -70,14 +70,14 @@ class SchedulerService {
 
     try {
       // Get current device state for logging
-      final deviceSnapshot = await _db.ref('classroom/devices/$deviceId').get();
+      final deviceSnapshot = await _db.ref('classrooms/a8/devices/$deviceId').get();
       final previousState = deviceSnapshot.exists
           ? Map<String, dynamic>.from(deviceSnapshot.value as Map)
           : {};
 
       // Update device state
       final bool newIsOn = actionType == 'on' || actionType == 'open';
-      await _db.ref('classroom/devices/$deviceId').update({
+      await _db.ref('classrooms/a8/devices/$deviceId').update({
         'isOn': newIsOn,
       });
 

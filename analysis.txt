@@ -1,0 +1,67 @@
+Analyzing wiwc...                                               
+
+warning - Duplicate import - lib\app.dart:18:8 - duplicate_import
+   info - Constructors in '@immutable' classes should be declared as 'const' - lib\features\attendance\screens\dashboard_screen.dart:9:3 - prefer_const_constructors_in_immutables
+warning - The value of the local variable 'uid' isn't used - lib\features\attendance\screens\history_screen.dart:94:35 - unused_local_variable
+   info - Don't use 'BuildContext's across async gaps - lib\features\attendance\screens\users_screen.dart:107:37 - use_build_context_synchronously
+warning - Unused import: 'class_selection_screen.dart' - lib\features\classes\class_dashboard_shell.dart:14:8 - unused_import
+warning - Unused import: '../../state/locale_provider.dart' - lib\features\classes\class_selection_screen.dart:9:8 - unused_import
+warning - Unused import: '../../l10n/app_localizations.dart' - lib\features\classes\class_selection_screen.dart:10:8 - unused_import
+warning - Unused import: 'class_dashboard_shell.dart' - lib\features\classes\class_selection_screen.dart:15:8 - unused_import
+warning - The value of the local variable 'sceneKeyMap' isn't used - lib\features\controls\controls_screen.dart:37:11 - unused_local_variable
+   info - Unnecessary use of 'indexOf' to test for containment - lib\features\controls\controls_screen.dart:40:34 - prefer_contains
+warning - The value of the local variable 'localizedSelectedScene' isn't used - lib\features\controls\controls_screen.dart:50:11 - unused_local_variable
+   info - Unnecessary use of 'indexOf' to test for containment - lib\features\controls\controls_screen.dart:50:61 - prefer_contains
+warning - The '!' will have no effect because the receiver can't be null - lib\features\controls\controls_screen.dart:50:92 - unnecessary_non_null_assertion
+warning - The '!' will have no effect because the receiver can't be null - lib\features\controls\controls_screen.dart:51:49 - unnecessary_non_null_assertion
+  error - Undefined name 'classroomStatsProvider' - lib\features\live\live_screen.dart:25:29 - undefined_identifier
+warning - Unused import: '../../state/theme_provider.dart' - lib\features\profile\account_screen.dart:13:8 - unused_import
+warning - The value of the local variable 'textSecondary' isn't used - lib\features\profile\help_support_screen.dart:22:11 - unused_local_variable
+warning - The value of the local variable 'textMuted' isn't used - lib\features\profile\help_support_screen.dart:23:11 - unused_local_variable
+  error - The getter 'slate' isn't defined for the type 'Colors' - lib\features\profile\iot_settings_screen.dart:78:46 - undefined_getter
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\profile\iot_settings_screen.dart:83:37 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\profile\iot_settings_screen.dart:85:56 - deprecated_member_use
+  error - The getter 'slate' isn't defined for the type 'Colors' - lib\features\profile\iot_settings_screen.dart:95:59 - undefined_getter
+  error - The getter 'slate' isn't defined for the type 'Colors' - lib\features\profile\iot_settings_screen.dart:97:58 - undefined_getter
+  error - Invalid constant value - lib\features\profile\iot_settings_screen.dart:99:55 - invalid_constant
+  error - The getter 'slate' isn't defined for the type 'Colors' - lib\features\profile\iot_settings_screen.dart:99:62 - undefined_getter
+  error - Undefined name 'RoundedRectangle' - lib\features\profile\iot_settings_screen.dart:118:32 - undefined_identifier
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\profile\iot_settings_screen.dart:141:38 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\profile\iot_settings_screen.dart:142:36 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\profile\iot_settings_screen.dart:146:40 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\profile\iot_settings_screen.dart:147:38 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\profile\iot_settings_screen.dart:185:29 - deprecated_member_use
+  error - The getter 'slate' isn't defined for the type 'Colors' - lib\features\profile\iot_settings_screen.dart:204:50 - undefined_getter
+warning - Unused import: '../../state/class_providers.dart' - lib\features\profile\profile_screen.dart:7:8 - unused_import
+warning - Unused import: 'iot_settings_screen.dart' - lib\features\profile\profile_screen.dart:16:8 - unused_import
+warning - The value of the local variable 'textSecondary' isn't used - lib\features\profile\profile_screen.dart:789:11 - unused_local_variable
+   info - Statements in a for should be enclosed in a block - lib\features\superadmin\superadmin_dashboard.dart:69:30 - curly_braces_in_flow_control_structures
+warning - Unused import: '../../theme/app_theme.dart' - lib\features\superadmin\superadmin_login_screen.dart:3:8 - unused_import
+warning - Unused import: '../../theme/tokens.dart' - lib\features\superadmin\superadmin_login_screen.dart:4:8 - unused_import
+warning - Unused import: '../../theme/app_theme.dart' - lib\features\superadmin\superadmin_shell.dart:2:8 - unused_import
+warning - Unused import: '../../theme/tokens.dart' - lib\features\superadmin\superadmin_shell.dart:3:8 - unused_import
+warning - The value of the field '_goldDark' isn't used - lib\features\superadmin\superadmin_shell.dart:19:16 - unused_field
+warning - Unused import: 'package:firebase_database/firebase_database.dart' - lib\main.dart:5:8 - unused_import
+warning - Unnecessary cast - lib\services\class_session_service.dart:276:50 - unnecessary_cast
+   info - Use interpolation to compose strings and values - lib\services\email_service.dart:46:18 - prefer_interpolation_to_compose_strings
+   info - Don't invoke 'print' in production code - lib\services\excel_service.dart:67:7 - avoid_print
+   info - 'Share' is deprecated and shouldn't be used. Use SharePlus instead - lib\services\excel_service.dart:70:13 - deprecated_member_use
+   info - 'shareXFiles' is deprecated and shouldn't be used. Use SharePlus.instance.share() instead - lib\services\excel_service.dart:70:19 - deprecated_member_use
+warning - Unused import: '../models/attendance_model.dart' - lib\services\firebase_service.dart:9:8 - unused_import
+   info - Don't invoke 'print' in production code - lib\services\firebase_service.dart:273:7 - avoid_print
+   info - Don't invoke 'print' in production code - lib\services\firebase_service.dart:275:7 - avoid_print
+   info - Don't invoke 'print' in production code - lib\services\firebase_service.dart:510:9 - avoid_print
+   info - The imported package 'http' isn't a dependency of the importing package - lib\services\iot_service.dart:2:8 - depend_on_referenced_packages
+   info - Don't invoke 'print' in production code - lib\services\iot_service.dart:36:7 - avoid_print
+warning - The '!' will have no effect because the receiver can't be null - lib\state\controllers.dart:162:25 - unnecessary_non_null_assertion
+warning - The '!' will have no effect because the receiver can't be null - lib\state\controllers.dart:167:26 - unnecessary_non_null_assertion
+warning - Unused import: '../theme/app_theme.dart' - lib\widgets\action_proposal_card.dart:2:8 - unused_import
+warning - Unused import: '../theme/app_theme.dart' - lib\widgets\chat_bubble.dart:2:8 - unused_import
+warning - Unused import: '../models/environment_data.dart' - lib\widgets\data_sync.dart:3:8 - unused_import
+warning - Unused import: '../theme/app_theme.dart' - lib\widgets\device_tile.dart:2:8 - unused_import
+warning - Unused import: '../theme/app_theme.dart' - lib\widgets\gauge.dart:3:8 - unused_import
+warning - Unused import: '../theme/app_theme.dart' - lib\widgets\insight_card.dart:2:8 - unused_import
+warning - Unused import: '../theme/app_theme.dart' - lib\widgets\mini_metric_card.dart:2:8 - unused_import
+warning - Unused import: '../theme/app_theme.dart' - lib\widgets\suggestion_card.dart:2:8 - unused_import
+
+63 issues found. (ran in 12.6s)

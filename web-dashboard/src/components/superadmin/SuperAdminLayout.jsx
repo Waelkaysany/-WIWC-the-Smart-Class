@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   Users,
   MessageSquareWarning,
+  MessageSquare,
   LogOut,
   Crown,
   Shield,
@@ -16,6 +17,7 @@ const navItems = [
   { path: '/superadmin', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { path: '/superadmin/teachers', label: 'Teachers', icon: Users },
   { path: '/superadmin/support', label: 'Support Requests', icon: MessageSquareWarning },
+  { path: '/superadmin/chat', label: 'Messages', icon: MessageSquare },
 ];
 
 export default function SuperAdminLayout({ children }) {

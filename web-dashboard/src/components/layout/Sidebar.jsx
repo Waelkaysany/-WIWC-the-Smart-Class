@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { LayoutDashboard, Users, lightbulb, Settings, LogOut, Cpu, Activity } from 'lucide-react';
+import { LayoutDashboard, Users, Lightbulb, Settings, LogOut, Cpu, Activity } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { Link, useLocation } from 'react-router-dom';
 

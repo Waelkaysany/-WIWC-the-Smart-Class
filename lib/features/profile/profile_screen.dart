@@ -12,6 +12,9 @@ import '../../l10n/app_localizations.dart';
 import 'notification_screen.dart';
 import 'account_screen.dart';
 import 'help_support_screen.dart';
+import '../support/admin_chat_screen.dart';
+import 'iot_settings_screen.dart';
+import 'package:firebase_database/firebase_database.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -286,6 +289,17 @@ class ProfileScreen extends ConsumerWidget {
                     onTap: () => _showAppearanceSheet(context, ref, isDark, t),
                   ),
                   _divider(borderColor),
+                  // IoT Connectivity
+                  _SettingsItem(
+                    icon: Icons.wifi_tethering_rounded,
+                    label: 'IoT Connectivity',
+                    isDark: isDark,
+                    trailing: Icon(Icons.chevron_right, color: textMuted, size: 20),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const IotSettingsScreen()),
+                    ),
+                  ),
+                  _divider(borderColor),
                   // Language
                   _SettingsItem(
                     icon: Icons.language,
@@ -306,6 +320,9 @@ class ProfileScreen extends ConsumerWidget {
                     ),
                     onTap: () => _showLanguageSheet(context, ref, locale, t),
                   ),
+                  _divider(borderColor),
+                  // Admin Support Chat
+                  _AdminChatSettingsItem(isDark: isDark),
                   _divider(borderColor),
                   // Help & Support
                   _SettingsItem(
@@ -769,6 +786,90 @@ class _SettingsItem extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ── Admin Chat Settings Item with live online status ──
+class _AdminChatSettingsItem extends StatelessWidget {
+  final bool isDark;
+  const _AdminChatSettingsItem({required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    final textSecondary = isDark ? AppColors.textSecondary : const Color(0xFF718096);
+    final textMuted = isDark ? AppColors.textMuted : const Color(0xFFA0AEC0);
+
+    return StreamBuilder<DatabaseEvent>(
+      stream: FirebaseDatabase.instance.ref('admin_status/online').onValue,
+      builder: (context, snapshot) {
+        final isOnline = snapshot.hasData &&
+            snapshot.data?.snapshot.value == true;
+
+        return GestureDetector(
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const AdminChatScreen()),
+          ),
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg,
+              vertical: AppSpacing.md + 2,
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.secondary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.support_agent_rounded, color: AppColors.secondary, size: 20),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Admin Chat',
+                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          color: isDark ? AppColors.textPrimary : const Color(0xFF1A202C),
+                        ),
+                      ),
+                      Text(
+                        isOnline ? 'Admin is online' : 'Admin is offline',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: isOnline ? AppColors.primary : textMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: isOnline ? AppColors.primary : textMuted,
+                        shape: BoxShape.circle,
+                        boxShadow: isOnline
+                            ? [BoxShadow(color: AppColors.primary.withValues(alpha: 0.5), blurRadius: 6, spreadRadius: 1)]
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Icon(Icons.chevron_right, color: textMuted, size: 20),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

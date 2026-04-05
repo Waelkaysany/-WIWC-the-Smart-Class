@@ -75,6 +75,92 @@ class ClassSessionService {
       },
     });
 
+    // Initialize classroom data if missing (to ensure UI works before ESP32 connects)
+    final sensorsRef = _db.ref('classrooms/$classId/sensors');
+    final sensorsSnap = await sensorsRef.get();
+    if (!sensorsSnap.exists) {
+      await sensorsRef.set({
+        'temperature': 24.0,
+        'humidity': 50.0,
+        'lightLevel': 80.0,
+        'studentsPresent': 0,
+        'airQuality': 98.0,
+      });
+    }
+
+    final devicesRef = _db.ref('classrooms/$classId/devices');
+    final devicesSnap = await devicesRef.get();
+    if (!devicesSnap.exists) {
+      await devicesRef.set({
+        'light_1': {
+          'name': 'Light 1',
+          'isOn': false,
+          'category': 'Lights',
+          'icon': 'lightbulb_outline',
+          'subtitle': 'Main ceiling',
+          'brightness': 1.0,
+        },
+        'light_2': {
+          'name': 'Light 2',
+          'isOn': false,
+          'category': 'Lights',
+          'icon': 'lightbulb_outline',
+          'subtitle': 'Window side',
+          'brightness': 1.0,
+        },
+        'door': {
+          'name': 'Door Lock',
+          'isOn': true,
+          'category': 'Door',
+          'icon': 'lock_outline',
+          'subtitle': 'Main door',
+        },
+        'projector': {
+          'name': 'Projector',
+          'isOn': false,
+          'category': 'Projector',
+          'icon': 'videocam_outlined',
+          'subtitle': 'Epson EB-X51',
+        },
+        'ac': {
+          'name': 'AC',
+          'isOn': true,
+          'category': 'AC',
+          'icon': 'ac_unit',
+          'subtitle': 'Cool mode',
+          'mode': 'Cool',
+        },
+        'speakers': {
+          'name': 'Speakers',
+          'isOn': false,
+          'category': 'Speaker',
+          'icon': 'speaker_outlined',
+          'subtitle': 'JBL system',
+        },
+        'board': {
+          'name': 'Smart Board',
+          'isOn': false,
+          'category': 'Board',
+          'icon': 'desktop_windows_outlined',
+          'subtitle': 'Interactive panel',
+        },
+        'window_left': {
+          'name': 'Window Left',
+          'isOn': false,
+          'category': 'Windows',
+          'icon': 'window_outlined',
+          'subtitle': 'Left side',
+        },
+        'window_right': {
+          'name': 'Window Right',
+          'isOn': false,
+          'category': 'Windows',
+          'icon': 'window_outlined',
+          'subtitle': 'Right side',
+        },
+      });
+    }
+
     // Start heartbeat
     _startHeartbeat(classId);
 
@@ -82,7 +168,7 @@ class ClassSessionService {
     return true;
   }
 
-  /// Leave a class: end session, unlock, stop heartbeat.
+  /// Leave a class: end session, unlock, stop heartbeat, and reset student statuses.
   Future<void> leaveClass() async {
     if (_activeClassId == null) return;
 
@@ -99,6 +185,26 @@ class ClassSessionService {
         'endedAt': DateTime.now().millisecondsSinceEpoch,
       });
     }
+
+    // ── Reset all students who are still marked 'inside' back to 'outside' ──
+    // This ensures the live counter drops to 0 immediately when the teacher leaves.
+    try {
+      final usersSnap = await _db.ref('users').orderByChild('status').equalTo('inside').get();
+      if (usersSnap.exists && usersSnap.value is Map) {
+        final insideUsers = Map<String, dynamic>.from(usersSnap.value as Map);
+        final batch = <Future>[];
+        for (final uid in insideUsers.keys) {
+          batch.add(_db.ref('users/$uid').update({'status': 'outside'}));
+        }
+        await Future.wait(batch);
+        debugPrint('🧹 Reset ${insideUsers.length} user(s) to outside on class exit.');
+      }
+    } catch (e) {
+      debugPrint('⚠️ Could not reset user statuses on leave: $e');
+    }
+
+    // Clear the last scanned ID so no ghost scan fires after session ends
+    await _db.ref('classrooms/$classId/last_scanned_id').remove();
 
     // Unlock class
     await _db.ref('classrooms/$classId').update({
