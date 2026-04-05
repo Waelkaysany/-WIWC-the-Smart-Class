@@ -337,6 +337,7 @@ class EnvironmentNotifier extends StateNotifier<EnvironmentData> {
           lastScannedUser: data['lastUser'] as String?,
           lastScannedUID: newUid,
           airQuality: state.airQuality,
+          autoLight: data['autoLight'] as bool? ?? true,
         );
         
         update(newData);

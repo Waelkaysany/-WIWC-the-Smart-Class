@@ -754,7 +754,7 @@ class _MiniMetric extends StatelessWidget {
   }
 }
 
-// ── Light Level Card with Auto Light-1 control ────────────────────────────────
+// ── Light Level Card with Auto Light toggle (delegates to ESP32) ──────────────
 class _LightSensorCard extends ConsumerStatefulWidget {
   final double lightLevel;
   final WidgetRef ref;
@@ -765,30 +765,26 @@ class _LightSensorCard extends ConsumerStatefulWidget {
 }
 
 class _LightSensorCardState extends ConsumerState<_LightSensorCard> {
-  bool _autoMode = true; // Default to Auto
-  bool _light1On = false;
-
-  @override
-  void didUpdateWidget(_LightSensorCard old) {
-    super.didUpdateWidget(old);
-    if (_autoMode && old.lightLevel != widget.lightLevel) {
-      _runAutoControl(widget.lightLevel);
-    }
-  }
-
-  Future<void> _runAutoControl(double level) async {
+  Future<void> _toggleAutoLight() async {
+    final env = ref.read(environmentProvider);
+    final newMode = !env.autoLight;
     final iotService = ref.read(iotServiceProvider);
-    if (level < 30 && !_light1On) {
-      final ok = await iotService.toggleLight('light_1', true);
-      if (ok && mounted) setState(() => _light1On = true);
-    } else if (level >= 60 && _light1On) {
-      final ok = await iotService.toggleLight('light_1', false);
-      if (ok && mounted) setState(() => _light1On = false);
+    // Send auto_light toggle to ESP32
+    final ok = await iotService.sendCommand('auto_light', isOn: newMode);
+    if (ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(newMode ? '💡 Auto Lights Enabled' : '👋 Manual Mode — Use Controls'),
+          backgroundColor: newMode ? const Color(0xFFFFD54F) : Colors.grey,
+          duration: const Duration(seconds: 2),
+        ),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final autoLight = ref.watch(environmentProvider).autoLight;
     return _SensorCard(
       icon: Icons.light_mode_rounded,
       label: 'Light Level',
@@ -796,20 +792,13 @@ class _LightSensorCardState extends ConsumerState<_LightSensorCard> {
       unit: '%',
       max: 100,
       color: const Color(0xFFFFD54F),
-      trend: _autoMode ? 'Auto: ON' : 'Auto: OFF',
-      onTap: () {
-        setState(() => _autoMode = !_autoMode);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(_autoMode ? '💡 Auto Lights Enabled' : '👋 Auto Lights Disabled'),
-            backgroundColor: _autoMode ? const Color(0xFFFFD54F) : context.textSecondary,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      },
+      trend: autoLight ? 'Auto: ON' : 'Manual',
+      onTap: _toggleAutoLight,
     );
   }
 }
+
+
 
 /// Sensor detail bottom sheet
 class _SensorDetailSheet extends StatelessWidget {

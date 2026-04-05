@@ -94,14 +94,42 @@ int studentsPresent = 0;
 String lastScannedUser = "None";
 String lastScannedUID = "None";
 
+// ── Auto-Light Control ──
+bool autoLightEnabled =
+    true; // Enabled by default — app can toggle via /control?device=auto_light
+
+// ── UID → Name Lookup ──
+struct CardOwner {
+  const char *uid;
+  const char *name;
+};
+const CardOwner CARD_OWNERS[] = {
+    {"5351D813", "Wail"},
+    {"A3F61C09", "Kyotaka"},
+    {"63B92D0B", "Hashimoto"},
+};
+const int NUM_CARDS = sizeof(CARD_OWNERS) / sizeof(CARD_OWNERS[0]);
+
+String lookupName(const String &uid) {
+  for (int i = 0; i < NUM_CARDS; i++) {
+    if (uid.equalsIgnoreCase(CARD_OWNERS[i].uid))
+      return String(CARD_OWNERS[i].name);
+  }
+  return "";
+}
+
 // ── Device States
 // ─────────────────────────────────────────────────────────────
 bool light1On = false;
 float light1Brightness = 1.0;
 bool light2On = false;
 float light2Brightness = 1.0;
-bool doorOpened = false;
+bool doorOpened =
+    false; // false = locked (servo 0°), true = unlocked (servo 90°)
 bool windowOpen = false; // false = closed (0°), true = open (90°)
+
+// ── Second Servo for Door Lock ──
+Servo doorServo;
 
 // ── Timers
 // ────────────────────────────────────────────────────────────────────
@@ -127,6 +155,11 @@ void applyLight2() {
 //  Helper: Move the servo (window)
 // =============================================================================
 void applyWindowServo() { windowServo.write(windowOpen ? 90 : 0); }
+
+// =============================================================================
+//  Helper: Move the door servo (lock/unlock)
+// =============================================================================
+void applyDoorServo() { doorServo.write(doorOpened ? 90 : 0); }
 
 // =============================================================================
 //  Helper: Add CORS headers so the phone can talk to this server
@@ -163,6 +196,7 @@ void handleData() {
   json += "\"studentsPresent\":" + String(studentsPresent) + ",";
   json += "\"lastUser\":\"" + lastScannedUser + "\",";
   json += "\"lastUID\":\"" + lastScannedUID + "\",";
+  json += "\"autoLight\":" + String(autoLightEnabled ? "true" : "false") + ",";
   json += "\"devices\":{";
   json += "\"light_1\":{\"isOn\":" + String(light1On ? "true" : "false") +
           ",\"brightness\":" + String(light1Brightness, 2) + "},";
@@ -175,6 +209,7 @@ void handleData() {
       "},";
   json += "\"door\":{\"isOn\":" + String(doorOpened ? "true" : "false") + "}";
   json += "}}";
+
   server.send(200, "application/json", json);
 }
 
@@ -212,8 +247,13 @@ void handleControl() {
   } else if (device == "door") {
     if (st != "")
       doorOpened = turnOn;
-    // Add door solenoid/relay logic here if needed
-    Serial.println("Door → " + String(doorOpened ? "UNLOCKED" : "LOCKED"));
+    applyDoorServo();
+    Serial.println("Door → " +
+                   String(doorOpened ? "UNLOCKED (90°)" : "LOCKED (0°)"));
+  } else if (device == "auto_light") {
+    autoLightEnabled = turnOn;
+    Serial.println("Auto-Light → " +
+                   String(autoLightEnabled ? "ENABLED" : "DISABLED"));
   } else {
     server.send(400, "application/json",
                 "{\"error\":\"Unknown device: " + device + "\"}");
@@ -291,9 +331,17 @@ void setup() {
   applyLight1(); // Start OFF
   applyLight2();
 
-  // Servo init
+  // Servo init — Window
   windowServo.attach(SERVO_PIN, 500, 2400);
   applyWindowServo(); // Start closed
+
+  // Servo init — Door Lock (shares same servo pin 13, or use another free pin)
+  // If you have a second servo for the door, change the pin below.
+  // For now we reuse the same servo: window servo doubles as door servo.
+  // IMPORTANT: If you have a dedicated door servo, wire it to a free pin
+  // and change SERVO_PIN below.
+  doorServo.attach(SERVO_PIN, 500, 2400);
+  applyDoorServo(); // Start locked
 
   // ── Connect to WiFi ──
   Serial.print("Connecting to WiFi: ");
@@ -353,9 +401,23 @@ void loop() {
 
     isFlameDetected = (digitalRead(FLAME_SENSOR_PIN) == HIGH);
 
-    Serial.printf("📡 Temp=%.1f°C  Hum=%.1f%%  Light=%d%%  Fire=%s\n",
-                  currentTemp, currentHum, currentLight,
-                  isFlameDetected ? "YES" : "no");
+    Serial.printf(
+        "📡 Temp=%.1f°C  Hum=%.1f%%  Light=%d%%  Fire=%s  AutoLight=%s\n",
+        currentTemp, currentHum, currentLight, isFlameDetected ? "YES" : "no",
+        autoLightEnabled ? "ON" : "OFF");
+
+    // ── Automated Lighting Logic (runs on ESP32, toggleable from app) ──
+    if (autoLightEnabled) {
+      if (currentLight < 30 && !light1On) {
+        light1On = true;
+        applyLight1();
+        Serial.println("💡 Auto-Light: Dark -> Light 1 ON");
+      } else if (currentLight > 70 && light1On) {
+        light1On = false;
+        applyLight1();
+        Serial.println("💡 Auto-Light: Bright -> Light 1 OFF");
+      }
+    }
 
     // If no fire, make sure alarm LED is off
     if (!isFlameDetected) {
@@ -376,14 +438,20 @@ void loop() {
     uid.toUpperCase(); // Arduino String mutates in-place
 
     lastScannedUID = uid;
-    lastScannedUser = "Card: " + uid;
+    String ownerName = lookupName(uid);
+    lastScannedUser = ownerName.length() > 0 ? ownerName : ("Card: " + uid);
 
-    Serial.println("🪪 RFID: " + uid);
+    Serial.println("🪪 RFID: " + uid + " → " + lastScannedUser);
     tone(BUZZER_PIN, 1800, 150);
 
+    // ── LCD: Show greeting with name ──
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("Card Scanned!");
+    if (ownerName.length() > 0) {
+      lcd.print("Hi, " + ownerName + "!");
+    } else {
+      lcd.print("Card Scanned!");
+    }
     lcd.setCursor(0, 1);
     lcd.print(uid);
 

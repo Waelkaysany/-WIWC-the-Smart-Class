@@ -6,6 +6,7 @@ class EnvironmentData {
   final double airQuality;
   final String? lastScannedUser;
   final String? lastScannedUID;
+  final bool autoLight;
 
   const EnvironmentData({
     required this.temperature,
@@ -15,6 +16,7 @@ class EnvironmentData {
     this.airQuality = 95, 
     this.lastScannedUser,
     this.lastScannedUID,
+    this.autoLight = true,
   });
 
   EnvironmentData copyWith({
@@ -25,6 +27,7 @@ class EnvironmentData {
     double? airQuality,
     String? lastScannedUser,
     String? lastScannedUID,
+    bool? autoLight,
   }) {
     return EnvironmentData(
       temperature: temperature ?? this.temperature,
@@ -34,6 +37,8 @@ class EnvironmentData {
       airQuality: airQuality ?? this.airQuality,
       lastScannedUser: lastScannedUser ?? this.lastScannedUser,
       lastScannedUID: lastScannedUID ?? this.lastScannedUID,
+      autoLight: autoLight ?? this.autoLight,
     );
   }
 }
+
